@@ -67,6 +67,10 @@ describe("extractOperationName", () => {
   test("returns undefined for whitespace-only", () => {
     expect(extractOperationName("   ")).toBeUndefined();
   });
+
+  test("handles trailing semicolon", () => {
+    expect(extractOperationName("BEGIN;")).toBe("BEGIN");
+  });
 });
 
 describe("buildParameterizedQuery", () => {
@@ -154,6 +158,42 @@ describe("sanitizeQuery", () => {
         "SELECT * FROM users WHERE name = 'alice' AND age = 30 AND active = TRUE",
       ),
     ).toBe("SELECT * FROM users WHERE name = ? AND age = ? AND active = ?");
+  });
+
+  test("replaces scientific notation", () => {
+    expect(sanitizeQuery("SELECT * WHERE val = 1e10")).toBe(
+      "SELECT * WHERE val = ?",
+    );
+    expect(sanitizeQuery("SELECT * WHERE val = 3.14e-2")).toBe(
+      "SELECT * WHERE val = ?",
+    );
+  });
+
+  test("replaces bare decimal literals", () => {
+    expect(sanitizeQuery("SELECT * WHERE val > .5")).toBe(
+      "SELECT * WHERE val > ?",
+    );
+  });
+
+  test("preserves qualified names with dots", () => {
+    expect(sanitizeQuery("SELECT schema.table FROM t")).toBe(
+      "SELECT schema.table FROM t",
+    );
+  });
+
+  test("handles case-insensitive NULL and booleans", () => {
+    expect(sanitizeQuery("SELECT * WHERE a = null AND b = false")).toBe(
+      "SELECT * WHERE a = ? AND b = ?",
+    );
+  });
+
+  test("does not replace partial keyword matches", () => {
+    expect(sanitizeQuery("SELECT nullable FROM t")).toBe(
+      "SELECT nullable FROM t",
+    );
+    expect(sanitizeQuery("SELECT trueval FROM t")).toBe(
+      "SELECT trueval FROM t",
+    );
   });
 });
 
