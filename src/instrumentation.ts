@@ -149,10 +149,10 @@ export class BunSqlInstrumentation extends InstrumentationBase {
         sqlVal !== undefined &&
         sqlVal !== null &&
         (!isRecord(sqlVal) ||
-          (sqlVal as Record<string | symbol, unknown>)[WRAPPED] !== true)
+          Reflect.get(sqlVal, WRAPPED) !== true)
       ) {
-        this._originalSqlSingleton = sqlVal as SQL;
-        bunModule.sql = this._wrapInstance(sqlVal as SQL);
+        this._originalSqlSingleton = sqlVal;
+        bunModule.sql = this._wrapInstance(sqlVal);
       }
 
       this._patched = true;
@@ -198,10 +198,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
    * and method invocations.
    */
   _wrapInstance(instance: SQL): SQL {
-    if (
-      (instance as unknown as Record<string | symbol, unknown>)[WRAPPED] ===
-      true
-    ) {
+    if (Reflect.get(instance, WRAPPED) === true) {
       return instance;
     }
 
@@ -251,7 +248,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
           default: {
             const value: unknown = Reflect.get(target, prop, receiver);
             if (typeof value === "function") {
-              return (value as (...args: never[]) => unknown).bind(target);
+              return value.bind(target);
             }
             return value;
           }
@@ -387,7 +384,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
         { kind: SpanKind.CLIENT, attributes: buildCtxAttributes(ctx, { [ATTR_DB_OPERATION_NAME]: "CLOSE" }) },
       );
       return original().then(
-        () => span.end(),
+        () => { span.end(); },
         (e: Error) => { this._recordError(span, e); span.end(); throw e; },
       );
     };
@@ -449,10 +446,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
           const value: unknown = Reflect.get(target, prop, receiver);
           if (typeof value === "function") {
             return (...args: unknown[]): unknown => {
-              const chainResult = (value as (...a: unknown[]) => unknown).apply(
-                target,
-                args,
-              );
+              const chainResult: unknown = value.apply(target, args);
               return this._wrapQueryResult(chainResult, span, config);
             };
           }
@@ -482,12 +476,13 @@ export class BunSqlInstrumentation extends InstrumentationBase {
           ? data["command"]
           : undefined;
       safeExecuteInTheMiddle(
-        () =>
+        () => {
           config.responseHook!(span, {
             rowCount,
             command,
             data: config.enhancedDatabaseReporting === true ? data : undefined,
-          }),
+          });
+        },
         (err) => {
           if (err) this._diag.error("Error in responseHook", err);
         },
@@ -518,7 +513,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
   ): void {
     if (config.requestHook !== undefined) {
       safeExecuteInTheMiddle(
-        () => config.requestHook!(span, info),
+        () => { config.requestHook!(span, info); },
         (err) => {
           if (err) this._diag.error("Error in requestHook", err);
         },

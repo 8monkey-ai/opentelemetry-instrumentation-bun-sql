@@ -43,8 +43,8 @@ export function buildParameterizedQuery(strings: TemplateStringsArray): string {
  */
 export function sanitizeQuery(sql: string): string {
   return sql
-    .replace(/\b\d+\b/g, "?")
-    .replace(/(["'])(?:(?=(\\?))\2.)*?\1/g, "?");
+    .replaceAll(/\b\d+\b/g, "?")
+    .replaceAll(/(["'])(?:(?=(\\?))\2.)*?\1/g, "?");
 }
 
 /**
