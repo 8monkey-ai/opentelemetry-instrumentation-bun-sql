@@ -5,7 +5,10 @@ import {
   SpanStatusCode,
   trace,
 } from "@opentelemetry/api";
-import { InstrumentationBase } from "@opentelemetry/instrumentation";
+import {
+  InstrumentationBase,
+  safeExecuteInTheMiddle,
+} from "@opentelemetry/instrumentation";
 import { addSqlCommenterComment } from "@opentelemetry/sql-common";
 import {
   ATTR_DB_NAMESPACE,
@@ -867,23 +870,26 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     }
 
     if (config.responseHook !== undefined) {
-      try {
-        const rowCount =
-          isRecord(data) && typeof data["count"] === "number"
-            ? data["count"]
-            : undefined;
-        const command =
-          isRecord(data) && typeof data["command"] === "string"
-            ? data["command"]
-            : undefined;
-        config.responseHook(span, {
-          rowCount,
-          command,
-          data: config.enhancedDatabaseReporting === true ? data : undefined,
-        });
-      } catch {
-        this._diag.error("Error in responseHook");
-      }
+      const rowCount =
+        isRecord(data) && typeof data["count"] === "number"
+          ? data["count"]
+          : undefined;
+      const command =
+        isRecord(data) && typeof data["command"] === "string"
+          ? data["command"]
+          : undefined;
+      safeExecuteInTheMiddle(
+        () =>
+          config.responseHook!(span, {
+            rowCount,
+            command,
+            data: config.enhancedDatabaseReporting === true ? data : undefined,
+          }),
+        (err) => {
+          if (err) this._diag.error("Error in responseHook", err);
+        },
+        true,
+      );
     }
 
     span.end();
@@ -908,11 +914,13 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     config: BunSqlInstrumentationConfig,
   ): void {
     if (config.requestHook !== undefined) {
-      try {
-        config.requestHook(span, info);
-      } catch {
-        this._diag.error("Error in requestHook");
-      }
+      safeExecuteInTheMiddle(
+        () => config.requestHook!(span, info),
+        (err) => {
+          if (err) this._diag.error("Error in requestHook", err);
+        },
+        true,
+      );
     }
   }
 }
