@@ -229,30 +229,22 @@ export class BunSqlInstrumentation extends InstrumentationBase {
             return this._wrapFile(target.file.bind(target), ctx);
           case "begin":
           case "transaction":
-            return this._wrapBegin(target.begin.bind(target), ctx);
+            return (callback: (tx: SQL) => Promise<unknown>): Promise<unknown> =>
+              target.begin((tx: SQL) => callback(this._wrapInstance(tx)));
           case "savepoint":
-            return this._wrapSavepoint(
-              (target as TransactionSQL).savepoint.bind(
-                target as TransactionSQL,
-              ),
-              ctx,
-            );
+            return (callback: (tx: SQL) => Promise<unknown>): Promise<unknown> =>
+              (target as TransactionSQL).savepoint((tx: SQL) =>
+                callback(this._wrapInstance(tx)),
+              );
           case "beginDistributed":
           case "distributed":
-            return this._wrapBeginDistributed(
-              target.beginDistributed.bind(target),
-              ctx,
-            );
-          case "commitDistributed":
-            return this._wrapCommitDistributed(
-              target.commitDistributed.bind(target),
-              ctx,
-            );
-          case "rollbackDistributed":
-            return this._wrapRollbackDistributed(
-              target.rollbackDistributed.bind(target),
-              ctx,
-            );
+            return (
+              id: string,
+              callback: (tx: SQL) => Promise<unknown>,
+            ): Promise<unknown> =>
+              target.beginDistributed(id, (tx: SQL) =>
+                callback(this._wrapInstance(tx)),
+              );
           case "reserve":
             return this._wrapReserve(target.reserve.bind(target), ctx);
           case "close":
@@ -445,253 +437,6 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       );
 
       return this._wrapQueryResult(result, span, config);
-    };
-  }
-
-  private _wrapBegin(
-    original: (
-      callback: (tx: SQL) => Promise<unknown>,
-    ) => Promise<unknown>,
-    ctx: InstanceContext,
-  ): (
-    callback: (tx: SQL) => Promise<unknown>,
-  ) => Promise<unknown> {
-    return (
-      callback: (tx: SQL) => Promise<unknown>,
-    ): Promise<unknown> => {
-      const config = this.getConfig();
-
-      if (
-        config.requireParentSpan === true &&
-        trace.getSpan(context.active()) === undefined
-      ) {
-        return original(callback);
-      }
-
-      const spanName = buildSpanName({
-        operationName: "BEGIN",
-        namespace: ctx.namespace,
-        systemName: ctx.systemName,
-      });
-
-      const span = this.tracer.startSpan(spanName, {
-        kind: SpanKind.CLIENT,
-        attributes: buildCtxAttributes(ctx, {
-          [ATTR_DB_OPERATION_NAME]: "BEGIN",
-        }),
-      });
-
-      const wrappedCallback = (tx: SQL): Promise<unknown> => {
-        const wrappedTx = this._wrapInstance(tx);
-        return context.with(trace.setSpan(context.active(), span), () =>
-          callback(wrappedTx),
-        );
-      };
-
-      return original(wrappedCallback).then(
-        (result) => {
-          span.end();
-          return result;
-        },
-        (error: Error) => {
-          this._recordError(span, error);
-          span.end();
-          throw error;
-        },
-      );
-    };
-  }
-
-  private _wrapSavepoint(
-    original: (
-      callback: (tx: SQL) => Promise<unknown>,
-    ) => Promise<unknown>,
-    ctx: InstanceContext,
-  ): (
-    callback: (tx: SQL) => Promise<unknown>,
-  ) => Promise<unknown> {
-    return (
-      callback: (tx: SQL) => Promise<unknown>,
-    ): Promise<unknown> => {
-      const config = this.getConfig();
-
-      if (
-        config.requireParentSpan === true &&
-        trace.getSpan(context.active()) === undefined
-      ) {
-        return original(callback);
-      }
-
-      const spanName = buildSpanName({
-        operationName: "SAVEPOINT",
-        namespace: ctx.namespace,
-        systemName: ctx.systemName,
-      });
-
-      const span = this.tracer.startSpan(spanName, {
-        kind: SpanKind.CLIENT,
-        attributes: buildCtxAttributes(ctx, {
-          [ATTR_DB_OPERATION_NAME]: "SAVEPOINT",
-        }),
-      });
-
-      const wrappedCallback = (tx: SQL): Promise<unknown> => {
-        const wrappedTx = this._wrapInstance(tx);
-        return context.with(trace.setSpan(context.active(), span), () =>
-          callback(wrappedTx),
-        );
-      };
-
-      return original(wrappedCallback).then(
-        (result) => {
-          span.end();
-          return result;
-        },
-        (error: Error) => {
-          this._recordError(span, error);
-          span.end();
-          throw error;
-        },
-      );
-    };
-  }
-
-  private _wrapBeginDistributed(
-    original: (
-      id: string,
-      callback: (tx: SQL) => Promise<unknown>,
-    ) => Promise<unknown>,
-    ctx: InstanceContext,
-  ): (
-    id: string,
-    callback: (tx: SQL) => Promise<unknown>,
-  ) => Promise<unknown> {
-    return (
-      id: string,
-      callback: (tx: SQL) => Promise<unknown>,
-    ): Promise<unknown> => {
-      const config = this.getConfig();
-
-      if (
-        config.requireParentSpan === true &&
-        trace.getSpan(context.active()) === undefined
-      ) {
-        return original(id, callback);
-      }
-
-      const spanName = buildSpanName({
-        operationName: "BEGIN DISTRIBUTED",
-        namespace: ctx.namespace,
-        systemName: ctx.systemName,
-      });
-
-      const span = this.tracer.startSpan(spanName, {
-        kind: SpanKind.CLIENT,
-        attributes: buildCtxAttributes(ctx, {
-          [ATTR_DB_OPERATION_NAME]: "BEGIN DISTRIBUTED",
-        }),
-      });
-
-      const wrappedCallback = (tx: SQL): Promise<unknown> => {
-        const wrappedTx = this._wrapInstance(tx);
-        return context.with(trace.setSpan(context.active(), span), () =>
-          callback(wrappedTx),
-        );
-      };
-
-      return original(id, wrappedCallback).then(
-        (result) => {
-          span.end();
-          return result;
-        },
-        (error: Error) => {
-          this._recordError(span, error);
-          span.end();
-          throw error;
-        },
-      );
-    };
-  }
-
-  private _wrapCommitDistributed(
-    original: (id: string) => Promise<void>,
-    ctx: InstanceContext,
-  ): (id: string) => Promise<void> {
-    return (id: string): Promise<void> => {
-      const config = this.getConfig();
-
-      if (
-        config.requireParentSpan === true &&
-        trace.getSpan(context.active()) === undefined
-      ) {
-        return original(id);
-      }
-
-      const spanName = buildSpanName({
-        operationName: "COMMIT DISTRIBUTED",
-        namespace: ctx.namespace,
-        systemName: ctx.systemName,
-      });
-
-      const span = this.tracer.startSpan(spanName, {
-        kind: SpanKind.CLIENT,
-        attributes: buildCtxAttributes(ctx, {
-          [ATTR_DB_OPERATION_NAME]: "COMMIT DISTRIBUTED",
-        }),
-      });
-
-      return original(id).then(
-        (result) => {
-          span.end();
-          return result;
-        },
-        (error: Error) => {
-          this._recordError(span, error);
-          span.end();
-          throw error;
-        },
-      );
-    };
-  }
-
-  private _wrapRollbackDistributed(
-    original: (id: string) => Promise<void>,
-    ctx: InstanceContext,
-  ): (id: string) => Promise<void> {
-    return (id: string): Promise<void> => {
-      const config = this.getConfig();
-
-      if (
-        config.requireParentSpan === true &&
-        trace.getSpan(context.active()) === undefined
-      ) {
-        return original(id);
-      }
-
-      const spanName = buildSpanName({
-        operationName: "ROLLBACK DISTRIBUTED",
-        namespace: ctx.namespace,
-        systemName: ctx.systemName,
-      });
-
-      const span = this.tracer.startSpan(spanName, {
-        kind: SpanKind.CLIENT,
-        attributes: buildCtxAttributes(ctx, {
-          [ATTR_DB_OPERATION_NAME]: "ROLLBACK DISTRIBUTED",
-        }),
-      });
-
-      return original(id).then(
-        (result) => {
-          span.end();
-          return result;
-        },
-        (error: Error) => {
-          this._recordError(span, error);
-          span.end();
-          throw error;
-        },
-      );
     };
   }
 
