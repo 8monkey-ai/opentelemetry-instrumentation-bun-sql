@@ -1,0 +1,27 @@
+export { BunSqlInstrumentation } from "./instrumentation.js";
+
+export type {
+	BunSqlInstrumentationConfig,
+	DbSystemName,
+	QueryInfo,
+	ResponseInfo,
+} from "./types.js";
+
+export {
+	ATTR_DB_SYSTEM_NAME,
+	ATTR_DB_NAMESPACE,
+	ATTR_DB_OPERATION_NAME,
+	ATTR_DB_QUERY_TEXT,
+	ATTR_DB_QUERY_SUMMARY,
+	ATTR_DB_RESPONSE_STATUS_CODE,
+	ATTR_DB_RESPONSE_RETURNED_ROWS,
+	ATTR_DB_QUERY_PARAMETER_PREFIX,
+	ATTR_SERVER_ADDRESS,
+	ATTR_SERVER_PORT,
+	ATTR_NETWORK_PEER_ADDRESS,
+	ATTR_NETWORK_PEER_PORT,
+	ATTR_ERROR_TYPE,
+	DB_SYSTEM_POSTGRESQL,
+	DB_SYSTEM_MYSQL,
+	DB_SYSTEM_SQLITE,
+} from "./semconv.js";
