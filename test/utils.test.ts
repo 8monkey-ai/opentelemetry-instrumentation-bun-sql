@@ -2,10 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildParameterizedQuery,
-  buildQuerySummary,
   buildSpanName,
   extractOperationName,
-  extractTableName,
   getDbNamespace,
   getDbSystemName,
   getServerAddress,
@@ -159,66 +157,8 @@ describe("sanitizeQuery", () => {
   });
 });
 
-describe("extractTableName", () => {
-  test("extracts from SELECT ... FROM", () => {
-    expect(extractTableName("SELECT * FROM users WHERE id = $1")).toBe("users");
-  });
-
-  test("extracts from INSERT INTO", () => {
-    expect(extractTableName("INSERT INTO orders (item) VALUES ($1)")).toBe(
-      "orders",
-    );
-  });
-
-  test("extracts from UPDATE", () => {
-    expect(extractTableName("UPDATE products SET price = $1")).toBe("products");
-  });
-
-  test("extracts from CREATE TABLE", () => {
-    expect(extractTableName("CREATE TABLE metrics (id INT)")).toBe("metrics");
-  });
-
-  test("returns undefined when no table found", () => {
-    expect(extractTableName("SELECT 1")).toBeUndefined();
-  });
-});
-
-describe("buildQuerySummary", () => {
-  test("returns operation + table", () => {
-    expect(
-      buildQuerySummary("SELECT", "SELECT * FROM users WHERE id = $1"),
-    ).toBe("SELECT users");
-  });
-
-  test("returns operation alone when no table", () => {
-    expect(buildQuerySummary("SELECT", "SELECT 1")).toBe("SELECT");
-  });
-
-  test("returns undefined when no operation", () => {
-    expect(buildQuerySummary(undefined, "FOOBAR")).toBeUndefined();
-  });
-
-  test("truncates to 255 chars", () => {
-    const longTable = "a".repeat(300);
-    const result = buildQuerySummary("SELECT", `SELECT * FROM ${longTable}`);
-    expect(result).toBeDefined();
-    expect(result!.length).toBeLessThanOrEqual(255);
-  });
-});
-
 describe("buildSpanName", () => {
-  test("prefers querySummary", () => {
-    expect(
-      buildSpanName({
-        querySummary: "SELECT users",
-        operationName: "SELECT",
-        namespace: "mydb",
-        systemName: "postgresql",
-      }),
-    ).toBe("SELECT users");
-  });
-
-  test("uses operation + namespace when no summary", () => {
+  test("uses operation + namespace", () => {
     expect(
       buildSpanName({
         operationName: "SELECT",

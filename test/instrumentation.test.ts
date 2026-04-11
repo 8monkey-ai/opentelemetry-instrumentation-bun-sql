@@ -9,7 +9,6 @@ import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import {
   ATTR_DB_NAMESPACE,
   ATTR_DB_OPERATION_NAME,
-  ATTR_DB_QUERY_SUMMARY,
   ATTR_DB_QUERY_TEXT,
   ATTR_DB_SYSTEM_NAME,
   ATTR_ERROR_TYPE,
@@ -90,9 +89,6 @@ describe("BunSqlInstrumentation", () => {
       expect(selectSpans.length).toBe(1);
       expect(selectSpans[0]!.attributes[ATTR_DB_QUERY_TEXT]).toBe(
         "SELECT * FROM param_test WHERE name = $1",
-      );
-      expect(selectSpans[0]!.attributes[ATTR_DB_QUERY_SUMMARY]).toBe(
-        "SELECT param_test",
       );
     });
 

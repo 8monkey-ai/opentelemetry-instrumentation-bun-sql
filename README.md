@@ -62,7 +62,6 @@ This instrumentation follows the [OpenTelemetry Database Semantic Conventions](h
 | `db.system.name` | Database system: `postgresql`, `mysql`, or `sqlite` |
 | `db.operation.name` | SQL operation: `SELECT`, `INSERT`, `UPDATE`, `DELETE`, etc. |
 | `db.query.text` | The SQL query text (parameterized for tagged templates, sanitized for unsafe queries) |
-| `db.query.summary` | Short summary: `{operation} {table}` |
 | `db.namespace` | Database name or SQLite filename |
 | `db.response.returned_rows` | Number of rows returned |
 | `server.address` | Server hostname (PostgreSQL/MySQL) |
@@ -74,11 +73,10 @@ This instrumentation follows the [OpenTelemetry Database Semantic Conventions](h
 
 Span names follow the OTel convention priority:
 
-1. `{db.query.summary}` (e.g., `SELECT users`)
-2. `{db.operation.name} {db.namespace}` (e.g., `SELECT mydb`)
-3. `{db.operation.name}` (e.g., `SELECT`)
-4. `{db.namespace}` (e.g., `mydb`)
-5. `{db.system.name}` (e.g., `postgresql`)
+1. `{db.operation.name} {db.namespace}` (e.g., `SELECT mydb`)
+2. `{db.operation.name}` (e.g., `SELECT`)
+3. `{db.namespace}` (e.g., `mydb`)
+4. `{db.system.name}` (e.g., `postgresql`)
 
 ## Configuration
 

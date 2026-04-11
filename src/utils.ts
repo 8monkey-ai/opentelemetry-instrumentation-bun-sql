@@ -1,5 +1,3 @@
-const MAX_QUERY_SUMMARY_LENGTH = 255;
-
 const SQL_OPERATIONS = new Set([
   "SELECT",
   "INSERT",
@@ -93,53 +91,17 @@ export function sanitizeQuery(sql: string): string {
 }
 
 /**
- * Extract a table/namespace hint from a query for the span name.
- * Returns the first table name found after FROM, INTO, UPDATE, or TABLE keywords.
- */
-export function extractTableName(sql: string): string | undefined {
-  const match = sql.match(
-    /\b(?:FROM|INTO|UPDATE|TABLE)\s+(?:`|"|')?(\w+)(?:`|"|')?/i,
-  );
-  return match?.[1];
-}
-
-/**
- * Build a query summary for the `db.query.summary` attribute.
- * Format: `{operation} {table}` truncated to 255 chars.
- */
-export function buildQuerySummary(
-  operationName: string | undefined,
-  queryText: string,
-): string | undefined {
-  const table = extractTableName(queryText);
-  if (operationName === undefined) {
-    return undefined;
-  }
-
-  const summary =
-    table === undefined ? operationName : `${operationName} ${table}`;
-
-  if (summary.length > MAX_QUERY_SUMMARY_LENGTH) {
-    return summary.slice(0, MAX_QUERY_SUMMARY_LENGTH);
-  }
-  return summary;
-}
-
-/**
  * Build span name per OTel DB semantic conventions:
- * 1. {db.query.summary} if available
- * 2. {db.operation.name} {db.namespace} if both available
- * 3. {db.operation.name} if no namespace
- * 4. {db.namespace} alone
- * 5. {db.system.name} as fallback
+ * 1. {db.operation.name} {db.namespace} if both available
+ * 2. {db.operation.name} if no namespace
+ * 3. {db.namespace} alone
+ * 4. {db.system.name} as fallback
  */
 export function buildSpanName(opts: {
-  querySummary?: string;
   operationName?: string;
   namespace?: string;
   systemName: string;
 }): string {
-  if (opts.querySummary !== undefined) return opts.querySummary;
   if (opts.operationName !== undefined && opts.namespace !== undefined)
     return `${opts.operationName} ${opts.namespace}`;
   if (opts.operationName !== undefined) return opts.operationName;

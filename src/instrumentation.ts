@@ -10,7 +10,6 @@ import { addSqlCommenterComment } from "@opentelemetry/sql-common";
 import {
   ATTR_DB_NAMESPACE,
   ATTR_DB_OPERATION_NAME,
-  ATTR_DB_QUERY_SUMMARY,
   ATTR_DB_QUERY_TEXT,
   ATTR_DB_RESPONSE_STATUS_CODE,
   ATTR_DB_SYSTEM_NAME,
@@ -27,7 +26,6 @@ import {
 import type { BunSqlInstrumentationConfig } from "./types.js";
 import {
   buildParameterizedQuery,
-  buildQuerySummary,
   buildSpanName,
   extractOperationName,
   getDbNamespace,
@@ -289,7 +287,6 @@ export class BunSqlInstrumentation extends InstrumentationBase {
 
     const queryText = buildParameterizedQuery(strings);
     const operationName = extractOperationName(queryText);
-    const querySummary = buildQuerySummary(operationName, queryText);
 
     if (
       config.requireParentSpan === true &&
@@ -301,8 +298,6 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     const attributes = buildCtxAttributes(ctx);
     if (operationName !== undefined)
       attributes[ATTR_DB_OPERATION_NAME] = operationName;
-    if (querySummary !== undefined)
-      attributes[ATTR_DB_QUERY_SUMMARY] = querySummary;
     attributes[ATTR_DB_QUERY_TEXT] = queryText;
 
     if (config.enhancedDatabaseReporting === true) {
@@ -314,7 +309,6 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     }
 
     const spanName = buildSpanName({
-      querySummary,
       operationName,
       namespace: ctx.namespace,
       systemName: ctx.systemName,
@@ -377,13 +371,10 @@ export class BunSqlInstrumentation extends InstrumentationBase {
         config.maskStatement === false
           ? query
           : (config.maskStatementHook ?? sanitizeQuery)(query);
-      const querySummary = buildQuerySummary(operationName, query);
 
       const attributes = buildCtxAttributes(ctx);
       if (operationName !== undefined)
         attributes[ATTR_DB_OPERATION_NAME] = operationName;
-      if (querySummary !== undefined)
-        attributes[ATTR_DB_QUERY_SUMMARY] = querySummary;
       attributes[ATTR_DB_QUERY_TEXT] = displayQuery;
 
       if (config.enhancedDatabaseReporting === true && params !== undefined) {
@@ -395,7 +386,6 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       }
 
       const spanName = buildSpanName({
-        querySummary,
         operationName,
         namespace: ctx.namespace,
         systemName: ctx.systemName,

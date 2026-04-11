@@ -36,7 +36,6 @@ import { PGlite } from "@electric-sql/pglite";
 import { BunSqlInstrumentation } from "../src/instrumentation.js";
 import {
   buildParameterizedQuery,
-  buildQuerySummary,
   extractOperationName,
   getDbSystemName,
 } from "../src/utils.js";
@@ -225,7 +224,6 @@ describe("PGlite query compatibility", () => {
     expect(query).toBe("SELECT * FROM users WHERE name = $1 AND age > $2");
 
     expect(extractOperationName(query)).toBe("SELECT");
-    expect(buildQuerySummary("SELECT", query)).toBe("SELECT users");
   });
 
   test("handles PostgreSQL CTE queries", async () => {
