@@ -32,7 +32,10 @@ function enableInstrumentation(config?: BunSqlInstrumentationConfig) {
 }
 
 function createSql() {
-  return new SQL({ adapter: "sqlite" });
+  // require() at call time so we get the instrumentation-patched constructor
+  // oxlint-disable-next-line no-unsafe-type-assertion
+  const { SQL: PatchedSQL } = require("bun") as { SQL: typeof SQL };
+  return new PatchedSQL({ adapter: "sqlite" });
 }
 
 function getSpans() {

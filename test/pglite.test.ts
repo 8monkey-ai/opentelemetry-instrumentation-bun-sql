@@ -28,7 +28,10 @@ import { BunSqlInstrumentation } from "../src/instrumentation.js";
 import { buildParameterizedQuery, extractOperationName, getDbSystemName } from "../src/utils.js";
 
 function createPostgresSql() {
-  return new SQL({
+  // require() at call time so we get the instrumentation-patched constructor
+  // oxlint-disable-next-line no-unsafe-type-assertion
+  const { SQL: PatchedSQL } = require("bun") as { SQL: typeof SQL };
+  return new PatchedSQL({
     adapter: "postgres",
     hostname: "localhost",
     port: 5432,
