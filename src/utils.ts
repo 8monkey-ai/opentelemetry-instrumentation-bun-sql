@@ -72,51 +72,23 @@ function isDigit(c: number): boolean {
   return c >= 48 && c <= 57;
 }
 
-function isAlpha(c: number): boolean {
-  return (c >= 65 && c <= 90) || (c >= 97 && c <= 122);
-}
-
-function isWordStart(c: number): boolean {
-  return isAlpha(c) || c === 95; // letter or _
-}
-
 function isWordChar(c: number): boolean {
-  return isAlpha(c) || isDigit(c) || c === 95;
-}
-
-function isHexDigit(c: number): boolean {
-  return isDigit(c) || (c >= 65 && c <= 70) || (c >= 97 && c <= 102);
-}
-
-/**
- * Try to consume a scientific notation suffix (e.g., e+10, E-3).
- * Returns the new index after the exponent, or the original index if none found.
- */
-function tryConsumeExponent(sql: string, len: number, j: number): number {
-  if (
-    j < len &&
-    (sql.charCodeAt(j) === 101 || sql.charCodeAt(j) === 69) // e or E
-  ) {
-    let k = j + 1;
-    if (k < len && (sql.charCodeAt(k) === 43 || sql.charCodeAt(k) === 45))
-      k++; // + or -
-    if (k < len && isDigit(sql.charCodeAt(k))) {
-      j = k + 1;
-      while (j < len && isDigit(sql.charCodeAt(j))) j++;
-    }
-  }
-  return j;
+  return (
+    (c >= 65 && c <= 90) || // A-Z
+    (c >= 97 && c <= 122) || // a-z
+    (c >= 48 && c <= 57) || // 0-9
+    c === 95 // _
+  );
 }
 
 /**
  * Sanitize a non-parameterized query by replacing literal values with `?`.
  * Uses a single-pass character scanner — no regex.
+ * Matches the scope of mysql2's default masking (integers and quoted strings).
  *
  * Replaces:
  * - Single-quoted strings: 'hello' → ?
- * - Numeric literals: 42, 3.14, .5, 1e10, 0xFF → ?
- * - Boolean literals: TRUE, FALSE → ?
- * - NULL → ?
+ * - Integer literals: 42 → ?
  *
  * Does NOT replace:
  * - Identifiers (column/table names)
@@ -153,57 +125,18 @@ export function sanitizeQuery(sql: string): string {
     }
 
     // Identifiers and keywords (start with letter or _)
-    if (isWordStart(ch)) {
+    if (isWordChar(ch) && !isDigit(ch)) {
       const start = i;
       i++;
       while (i < len && isWordChar(sql.charCodeAt(i))) i++;
-      const word = sql.slice(start, i);
-      const upper = word.toUpperCase();
-      if (upper === "TRUE" || upper === "FALSE" || upper === "NULL") {
-        result += "?";
-      } else {
-        result += word;
-      }
+      result += sql.slice(start, i);
       continue;
     }
 
-    // Numeric literals
+    // Integer literals → ?
     if (isDigit(ch)) {
-      // Hex: 0xFF
-      if (
-        ch === 48 &&
-        i + 1 < len &&
-        (sql.charCodeAt(i + 1) === 120 || sql.charCodeAt(i + 1) === 88) // x or X
-      ) {
-        let j = i + 2;
-        while (j < len && isHexDigit(sql.charCodeAt(j))) j++;
-        result += "?";
-        i = j;
-        continue;
-      }
-      // Integer/decimal with optional exponent
-      let j = i;
-      while (j < len && isDigit(sql.charCodeAt(j))) j++;
-      if (j < len && sql.charCodeAt(j) === 46) {
-        // decimal point
-        j++;
-        while (j < len && isDigit(sql.charCodeAt(j))) j++;
-      }
-      i = tryConsumeExponent(sql, len, j);
-      result += "?";
-      continue;
-    }
-
-    // Bare decimal: .5, .123e4
-    if (
-      ch === 46 && // .
-      i + 1 < len &&
-      isDigit(sql.charCodeAt(i + 1)) &&
-      (i === 0 || !isWordChar(sql.charCodeAt(i - 1)))
-    ) {
-      let j = i + 1;
-      while (j < len && isDigit(sql.charCodeAt(j))) j++;
-      i = tryConsumeExponent(sql, len, j);
+      i++;
+      while (i < len && isDigit(sql.charCodeAt(i))) i++;
       result += "?";
       continue;
     }

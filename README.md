@@ -85,7 +85,7 @@ Span names follow the OTel convention priority:
 | `requireParentSpan` | `boolean` | `false` | Only create spans when a parent span exists in context |
 | `enhancedDatabaseReporting` | `boolean` | `false` | Include query parameters (`db.query.parameter.<n>`) and result data in spans |
 | `ignoreConnectionSpans` | `boolean` | `false` | Suppress spans for `CLOSE` and `RESERVE` operations |
-| `maskStatement` | `boolean` | `true` | Replace literal values with `?` in non-parameterized queries (`sql.unsafe()`) |
+| `maskStatement` | `boolean` | `true` | Replace integer literals and quoted strings with `?` in non-parameterized queries (`sql.unsafe()`) |
 | `maskStatementHook` | `(query: string) => string` | Built-in masker | Custom masking function for non-parameterized queries |
 | `addSqlCommenterComment` | `boolean` | `false` | Append SQL commenter traceparent comments to queries |
 | `requestHook` | `(span, info) => void` | - | Called before query execution to customize span attributes |
