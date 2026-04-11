@@ -115,6 +115,16 @@ describe("sanitizeQuery", () => {
     );
   });
 
+  test("preserves double-quoted identifiers", () => {
+    expect(sanitizeQuery('SELECT * FROM "users" WHERE "name" = \'alice\'')).toBe(
+      'SELECT * FROM "users" WHERE "name" = ?',
+    );
+  });
+
+  test("handles SQL-style escaped quotes (doubled)", () => {
+    expect(sanitizeQuery("SELECT * WHERE name = 'it''s'")).toBe("SELECT * WHERE name = ?");
+  });
+
   test("preserves qualified names with dots", () => {
     expect(sanitizeQuery("SELECT schema.table FROM t")).toBe("SELECT schema.table FROM t");
   });

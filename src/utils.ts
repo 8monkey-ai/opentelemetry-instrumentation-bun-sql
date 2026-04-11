@@ -30,19 +30,19 @@ export function buildParameterizedQuery(strings: TemplateStringsArray): string {
 
 /**
  * Sanitize a non-parameterized query by replacing literal values with `?`.
- * Matches the scope of mysql2's default masking (integers and quoted strings).
+ * Matches the scope of mysql2's default masking (integers and single-quoted strings).
  *
  * Replaces:
- * - Single- and double-quoted strings: 'hello' / "hello" → ?
+ * - Single-quoted strings: 'hello' → ?
  * - Integer literals: 42 → ?
  *
  * Does NOT replace:
- * - Identifiers (column/table names)
+ * - Double-quoted identifiers ("table_name") — these are identifiers in PostgreSQL/SQLite
  * - Keywords
  * - Operators
  */
 export function sanitizeQuery(sql: string): string {
-  return sql.replaceAll(/\b\d+\b/g, "?").replaceAll(/(["'])(?:(?=(\\?))\2.)*?\1/g, "?");
+  return sql.replaceAll(/\b\d+\b/g, "?").replaceAll(/'(?:\\.|''|[^'])*'/g, "?");
 }
 
 /**

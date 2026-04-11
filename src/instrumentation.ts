@@ -244,10 +244,17 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     return this._execQuery(queryText, operationName, params, ctx, config, (span) => {
       if (config.addSqlCommenterComment === true) {
         const commentedQuery = addSqlCommenterComment(span, queryText);
-        // oxlint-disable-next-line no-unsafe-type-assertion
-        const syntheticStrings = [commentedQuery] as unknown as TemplateStringsArray;
-        Object.defineProperty(syntheticStrings, "raw", { value: [commentedQuery] });
-        return instance(syntheticStrings);
+        const suffix = commentedQuery.slice(queryText.length);
+        const syntheticStrings = [...strings];
+        const raw = [...strings.raw];
+        syntheticStrings[syntheticStrings.length - 1] += suffix;
+        raw[raw.length - 1] += suffix;
+        Object.defineProperty(syntheticStrings, "raw", { value: raw });
+        return instance(
+          // oxlint-disable-next-line no-unsafe-type-assertion
+          syntheticStrings as unknown as TemplateStringsArray,
+          ...params,
+        );
       }
       return instance(...([strings, ...params] as [TemplateStringsArray, ...unknown[]]));
     });
@@ -311,8 +318,14 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       config,
     );
 
-    const result = context.with(trace.setSpan(context.active(), span), () => execute(span));
-    return this._wrapQueryResult(result, span, config);
+    try {
+      const result = context.with(trace.setSpan(context.active(), span), () => execute(span));
+      return this._wrapQueryResult(result, span, config);
+    } catch (error) {
+      this._recordError(span, error instanceof Error ? error : new Error(String(error)));
+      span.end();
+      throw error;
+    }
   }
 
   private _wrapConnOp<TIn, TOut>(

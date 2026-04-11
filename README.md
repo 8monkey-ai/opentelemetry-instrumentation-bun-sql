@@ -23,8 +23,9 @@ import { BunSqlInstrumentation } from "@8monkey/opentelemetry-instrumentation-bu
 // 1. Register instrumentation before creating any SQL instances.
 //    Bun built-ins bypass Node.js module hooks, so the instrumentation patches
 //    require("bun").SQL at enable time — instances created before this are not traced.
-const provider = new NodeTracerProvider();
-provider.addSpanProcessor(new SimpleSpanProcessor(new ConsoleSpanExporter()));
+const provider = new NodeTracerProvider({
+  spanProcessors: [new SimpleSpanProcessor(new ConsoleSpanExporter())],
+});
 provider.register();
 
 registerInstrumentations({
