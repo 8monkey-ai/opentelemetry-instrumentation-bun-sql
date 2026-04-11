@@ -132,6 +132,23 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       this._patched = true;
       this._diag.debug("Bun.SQL instrumentation enabled");
     } catch (e) {
+      try {
+        const bunModule = this._getBunModule();
+        if (bunModule !== undefined) {
+          if (this._originalSQL !== null) {
+            bunModule.SQL = this._originalSQL;
+          }
+          if (this._originalSqlSingleton !== null) {
+            bunModule.sql = this._originalSqlSingleton;
+          }
+        }
+      } catch {
+        // ignore rollback failures
+      } finally {
+        this._originalSQL = null;
+        this._originalSqlSingleton = null;
+        this._patched = false;
+      }
       this._diag.error("Failed to enable Bun.SQL instrumentation", e);
     }
   }
@@ -350,17 +367,23 @@ export class BunSqlInstrumentation extends InstrumentationBase {
           attributes: buildCtxAttributes(ctx, { [ATTR_DB_OPERATION_NAME]: op }),
         },
       );
-      return original().then(
-        (r: TIn): TOut => {
-          span.end();
-          return onSuccess(r);
-        },
-        (e: Error) => {
-          this._recordError(span, e);
-          span.end();
-          throw e;
-        },
-      );
+      try {
+        return original().then(
+          (r: TIn): TOut => {
+            span.end();
+            return onSuccess(r);
+          },
+          (e: Error) => {
+            this._recordError(span, e);
+            span.end();
+            throw e;
+          },
+        );
+      } catch (e) {
+        this._recordError(span, e instanceof Error ? e : new Error(String(e)));
+        span.end();
+        throw e;
+      }
     };
   }
 
