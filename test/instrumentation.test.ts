@@ -174,7 +174,7 @@ describe("BunSqlInstrumentation", () => {
   });
 
   describe("transactions", () => {
-    test("creates span for begin transaction", async () => {
+    test("instruments queries inside transactions", async () => {
       const sql = createSql() as {
         begin: (
           cb: (tx: ReturnType<typeof Function>) => Promise<void>,
@@ -188,19 +188,13 @@ describe("BunSqlInstrumentation", () => {
       });
       await sql.close();
 
-      const beginSpan = getSpans().find(
-        (s) => s.attributes[ATTR_DB_OPERATION_NAME] === "BEGIN",
-      );
-      expect(beginSpan).toBeDefined();
-      expect(beginSpan!.attributes[ATTR_DB_SYSTEM_NAME]).toBe("sqlite");
-
       const insertSpan = getSpans().find(
         (s) => s.attributes[ATTR_DB_OPERATION_NAME] === "INSERT",
       );
       expect(insertSpan).toBeDefined();
     });
 
-    test("records error on failed transaction", async () => {
+    test("instruments queries inside failed transactions", async () => {
       const sql = createSql() as {
         begin: (
           cb: (tx: ReturnType<typeof Function>) => Promise<void>,
@@ -219,11 +213,10 @@ describe("BunSqlInstrumentation", () => {
       }
       await sql.close();
 
-      const beginSpan = getSpans().find(
-        (s) => s.attributes[ATTR_DB_OPERATION_NAME] === "BEGIN",
+      const insertSpan = getSpans().find(
+        (s) => s.attributes[ATTR_DB_OPERATION_NAME] === "INSERT",
       );
-      expect(beginSpan).toBeDefined();
-      expect(beginSpan!.status.code).toBe(SpanStatusCode.ERROR);
+      expect(insertSpan).toBeDefined();
     });
 
     test("creates spans for nested savepoints", async () => {

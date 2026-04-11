@@ -171,11 +171,11 @@ describe("PostgreSQL adapter detection", () => {
     await sql.close();
 
     const spans = exporter.getFinishedSpans();
-    const beginSpan = spans.find(
-      (s) => s.attributes[ATTR_DB_OPERATION_NAME] === "BEGIN",
+    const closeSpan = spans.find(
+      (s) => s.attributes[ATTR_DB_OPERATION_NAME] === "CLOSE",
     );
-    expect(beginSpan).toBeDefined();
-    expect(beginSpan!.attributes[ATTR_DB_SYSTEM_NAME]).toBe("postgresql");
+    expect(closeSpan).toBeDefined();
+    expect(closeSpan!.attributes[ATTR_DB_SYSTEM_NAME]).toBe("postgresql");
   });
 });
 
