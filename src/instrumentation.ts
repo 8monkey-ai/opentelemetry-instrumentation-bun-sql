@@ -323,7 +323,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       query: queryText,
       operation: operationName,
       params: config.enhancedDatabaseReporting === true ? params : undefined,
-    });
+    }, config);
 
     let queryArgs: unknown[];
     if (config.addSqlCommenterComment === true) {
@@ -400,7 +400,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
         query: displayQuery,
         operation: operationName,
         params: config.enhancedDatabaseReporting === true ? params : undefined,
-      });
+      }, config);
 
       let finalQuery = query;
       if (config.addSqlCommenterComment === true) {
@@ -843,21 +843,20 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       get: (target, prop, receiver) => {
         if (prop === "then") return wrappedThen;
 
-        const value: unknown = Reflect.get(target, prop, receiver);
-        if (
-          typeof prop === "string" &&
-          CHAINING_METHODS.has(prop) &&
-          typeof value === "function"
-        ) {
-          return (...args: unknown[]): unknown => {
-            const chainResult = (value as (...a: unknown[]) => unknown).apply(
-              target,
-              args,
-            );
-            return this._wrapQueryResult(chainResult, span, config);
-          };
+        if (typeof prop === "string" && CHAINING_METHODS.has(prop)) {
+          const value: unknown = Reflect.get(target, prop, receiver);
+          if (typeof value === "function") {
+            return (...args: unknown[]): unknown => {
+              const chainResult = (value as (...a: unknown[]) => unknown).apply(
+                target,
+                args,
+              );
+              return this._wrapQueryResult(chainResult, span, config);
+            };
+          }
+          return value;
         }
-        return value;
+        return Reflect.get(target, prop, receiver);
       },
     });
   }
@@ -910,8 +909,8 @@ export class BunSqlInstrumentation extends InstrumentationBase {
   private _callRequestHook(
     span: Span,
     info: { query: string; operation?: string; params?: unknown[] },
+    config: BunSqlInstrumentationConfig,
   ): void {
-    const config = this.getConfig();
     if (config.requestHook !== undefined) {
       try {
         config.requestHook(span, info);
