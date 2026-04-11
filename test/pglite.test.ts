@@ -245,7 +245,7 @@ describe("PGlite query compatibility", () => {
     const result = await pg.query(cteQuery);
     expect(result.rows.length).toBe(2);
 
-    // WITH is not in the SQL operations set — extractOperationName returns undefined
-    expect(extractOperationName(cteQuery.trim())).toBeUndefined();
+    // extractOperationName returns the first word uppercased
+    expect(extractOperationName(cteQuery.trim())).toBe("WITH");
   });
 });

@@ -1,55 +1,16 @@
-const SQL_OPERATIONS = new Set([
-  "SELECT",
-  "INSERT",
-  "UPDATE",
-  "DELETE",
-  "CREATE",
-  "DROP",
-  "ALTER",
-  "TRUNCATE",
-  "BEGIN",
-  "COMMIT",
-  "ROLLBACK",
-  "SAVEPOINT",
-  "RELEASE",
-  "SET",
-  "SHOW",
-  "EXPLAIN",
-  "ANALYZE",
-  "GRANT",
-  "REVOKE",
-  "MERGE",
-  "CALL",
-  "EXECUTE",
-  "PREPARE",
-  "DEALLOCATE",
-  "VACUUM",
-  "REINDEX",
-  "PRAGMA",
-]);
-
 /**
  * Extract the SQL operation name (SELECT, INSERT, etc.) from a query string.
- * Uses indexOf+slice instead of regex for the common (no-comment) path.
+ * Returns the first word uppercased, matching the approach used by pg and mysql2 adapters.
  */
 export function extractOperationName(sql: string): string | undefined {
   const trimmed = sql.trimStart();
   if (trimmed.length === 0) return undefined;
 
-  // Fast-path: skip comment stripping unless the query starts with one
-  let cleaned = trimmed;
-  const first = trimmed.charCodeAt(0);
-  if (first === 45 /* - */ || first === 47 /* / */) {
-    cleaned = trimmed
-      .replace(/^--[^\n]*\n\s*/, "")
-      .replace(/^\/\*[\s\S]*?\*\/\s*/, "");
-  }
-
-  const spaceIdx = cleaned.indexOf(" ");
-  let firstWord = spaceIdx === -1 ? cleaned : cleaned.slice(0, spaceIdx);
+  const spaceIdx = trimmed.indexOf(" ");
+  let firstWord = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx);
   if (firstWord.endsWith(";")) firstWord = firstWord.slice(0, -1);
-  const op = firstWord.toUpperCase();
-  return SQL_OPERATIONS.has(op) ? op : undefined;
+  if (firstWord.length === 0) return undefined;
+  return firstWord.toUpperCase();
 }
 
 /**

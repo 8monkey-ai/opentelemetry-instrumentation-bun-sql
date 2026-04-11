@@ -44,20 +44,12 @@ describe("extractOperationName", () => {
     expect(extractOperationName("  \n  SELECT 1")).toBe("SELECT");
   });
 
-  test("handles line comments", () => {
-    expect(extractOperationName("-- comment\nSELECT 1")).toBe("SELECT");
-  });
-
-  test("handles block comments", () => {
-    expect(extractOperationName("/* comment */ SELECT 1")).toBe("SELECT");
-  });
-
   test("is case-insensitive", () => {
     expect(extractOperationName("select * from users")).toBe("SELECT");
   });
 
-  test("returns undefined for unknown operation", () => {
-    expect(extractOperationName("FOOBAR something")).toBeUndefined();
+  test("returns first word for any operation", () => {
+    expect(extractOperationName("FOOBAR something")).toBe("FOOBAR");
   });
 
   test("returns undefined for empty string", () => {
