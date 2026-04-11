@@ -115,7 +115,7 @@ new BunSqlInstrumentation({
 
 - **Tagged template queries**: `` sql`SELECT * FROM users WHERE id = ${id}` ``
 - **Unsafe queries**: `sql.unsafe("SELECT * FROM users")`
-- **Transactions**: `sql.begin(tx => ...)`, including nested savepoints
+- **Queries inside transactions**: queries run inside `sql.begin(tx => ...)`, `tx.savepoint(sp => ...)`, etc. are individually traced; no span is emitted for the transaction boundary itself
 - **Connection management**: `sql.close()`, `sql.reserve()`
 - **Chaining methods**: `.values()`, `.raw()`, `.simple()`, `.execute()`
 
