@@ -1,15 +1,5 @@
-import {
-  context,
-  type Span,
-  SpanKind,
-  SpanStatusCode,
-  trace,
-} from "@opentelemetry/api";
-import {
-  InstrumentationBase,
-  safeExecuteInTheMiddle,
-} from "@opentelemetry/instrumentation";
-import { addSqlCommenterComment } from "@opentelemetry/sql-common";
+import { context, type Span, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import { InstrumentationBase, safeExecuteInTheMiddle } from "@opentelemetry/instrumentation";
 import {
   ATTR_DB_NAMESPACE,
   ATTR_DB_OPERATION_NAME,
@@ -20,12 +10,10 @@ import {
   ATTR_SERVER_ADDRESS,
   ATTR_SERVER_PORT,
 } from "@opentelemetry/semantic-conventions";
-
+import { addSqlCommenterComment } from "@opentelemetry/sql-common";
 import type { SQL, TransactionSQL } from "bun";
-import {
-  ATTR_DB_QUERY_PARAMETER_PREFIX,
-  ATTR_DB_RESPONSE_RETURNED_ROWS,
-} from "./semconv.js";
+
+import { ATTR_DB_QUERY_PARAMETER_PREFIX, ATTR_DB_RESPONSE_RETURNED_ROWS } from "./semconv.js";
 import type { BunSqlInstrumentationConfig } from "./types.js";
 import {
   buildParameterizedQuery,
@@ -66,8 +54,7 @@ function buildCtxAttributes(
     ...extra,
   };
   if (ctx.namespace !== undefined) attrs[ATTR_DB_NAMESPACE] = ctx.namespace;
-  if (ctx.serverAddress !== undefined)
-    attrs[ATTR_SERVER_ADDRESS] = ctx.serverAddress;
+  if (ctx.serverAddress !== undefined) attrs[ATTR_SERVER_ADDRESS] = ctx.serverAddress;
   if (ctx.serverPort !== undefined) attrs[ATTR_SERVER_PORT] = ctx.serverPort;
   return attrs;
 }
@@ -76,9 +63,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
   // These fields are intentionally NOT class field initializers.
   // InstrumentationBase.constructor calls enable() before subclass field
   // initializers run, which would overwrite state set during enable().
-  declare private _originalSQL:
-    | (new (...args: unknown[]) => SQL)
-    | null;
+  declare private _originalSQL: (new (...args: unknown[]) => SQL) | null;
   declare private _originalSqlSingleton: SQL | null;
   declare private _patched: boolean;
 
@@ -112,29 +97,18 @@ export class BunSqlInstrumentation extends InstrumentationBase {
 
       if (bunModule.SQL !== undefined && bunModule.SQL !== null) {
         // oxlint-disable-next-line no-unsafe-type-assertion
-        const OrigSQL = bunModule.SQL as new (
-          ...args: unknown[]
-        ) => SQL;
+        const OrigSQL = bunModule.SQL as new (...args: unknown[]) => SQL;
         this._originalSQL = OrigSQL;
         const wrapInstance = this._wrapInstance.bind(this);
 
         // Wrap the SQL constructor so new instances are automatically instrumented
-        const wrappedSQL = function SQL(
-          this: unknown,
-          ...args: unknown[]
-        ): SQL {
+        const wrappedSQL = function SQL(this: unknown, ...args: unknown[]): SQL {
           const instance = new OrigSQL(...args);
           return wrapInstance(instance);
         };
 
         // Preserve static properties
-        for (const key of [
-          "prototype",
-          "MySQLError",
-          "PostgresError",
-          "SQLError",
-          "SQLiteError",
-        ]) {
+        for (const key of ["prototype", "MySQLError", "PostgresError", "SQLError", "SQLiteError"]) {
           const desc = Object.getOwnPropertyDescriptor(OrigSQL, key);
           if (desc !== undefined) {
             Object.defineProperty(wrappedSQL, key, desc);
@@ -149,8 +123,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       if (
         sqlVal !== undefined &&
         sqlVal !== null &&
-        (!isRecord(sqlVal) ||
-          Reflect.get(sqlVal, WRAPPED) !== true)
+        (!isRecord(sqlVal) || Reflect.get(sqlVal, WRAPPED) !== true)
       ) {
         this._originalSqlSingleton = sqlVal;
         bunModule.sql = this._wrapInstance(sqlVal);
@@ -231,18 +204,11 @@ export class BunSqlInstrumentation extends InstrumentationBase {
           case "savepoint":
             return (callback: (tx: SQL) => Promise<unknown>): Promise<unknown> =>
               // oxlint-disable-next-line no-unsafe-type-assertion
-              (target as TransactionSQL).savepoint((tx: SQL) =>
-                callback(this._wrapInstance(tx)),
-              );
+              (target as TransactionSQL).savepoint((tx: SQL) => callback(this._wrapInstance(tx)));
           case "beginDistributed":
           case "distributed":
-            return (
-              id: string,
-              callback: (tx: SQL) => Promise<unknown>,
-            ): Promise<unknown> =>
-              target.beginDistributed(id, (tx: SQL) =>
-                callback(this._wrapInstance(tx)),
-              );
+            return (id: string, callback: (tx: SQL) => Promise<unknown>): Promise<unknown> =>
+              target.beginDistributed(id, (tx: SQL) => callback(this._wrapInstance(tx)));
           case "reserve":
             return this._wrapReserve(target.reserve.bind(target), ctx);
           case "close":
@@ -261,11 +227,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     });
   }
 
-  private _handleTaggedTemplate(
-    instance: SQL,
-    args: unknown[],
-    ctx: InstanceContext,
-  ): unknown {
+  private _handleTaggedTemplate(instance: SQL, args: unknown[], ctx: InstanceContext): unknown {
     const config = this.getConfig();
     // oxlint-disable-next-line no-unsafe-type-assertion
     const strings = args[0] as TemplateStringsArray;
@@ -302,9 +264,8 @@ export class BunSqlInstrumentation extends InstrumentationBase {
 
       const operationName = extractOperationName(query);
       // Mask non-parameterized queries per OTel semconv
-      const queryText = config.maskStatement === false
-        ? query
-        : (config.maskStatementHook ?? sanitizeQuery)(query);
+      const queryText =
+        config.maskStatement === false ? query : (config.maskStatementHook ?? sanitizeQuery)(query);
 
       return this._execQuery(queryText, operationName, params, ctx, config, (span) =>
         original(
@@ -338,61 +299,84 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       { kind: SpanKind.CLIENT, attributes },
     );
 
-    this._callRequestHook(span, {
-      query: queryText,
-      operation: operationName,
-      params: config.enhancedDatabaseReporting === true ? params : undefined,
-    }, config);
+    this._callRequestHook(
+      span,
+      {
+        query: queryText,
+        operation: operationName,
+        params: config.enhancedDatabaseReporting === true ? params : undefined,
+      },
+      config,
+    );
 
     const result = context.with(trace.setSpan(context.active(), span), () => execute(span));
     return this._wrapQueryResult(result, span, config);
   }
 
-  private _wrapReserve(
-    original: () => Promise<SQL>,
-    ctx: InstanceContext,
-  ): () => Promise<SQL> {
+  private _wrapReserve(original: () => Promise<SQL>, ctx: InstanceContext): () => Promise<SQL> {
     return (): Promise<SQL> => {
       const config = this.getConfig();
       if (
         config.ignoreConnectionSpans === true ||
-        (config.requireParentSpan === true &&
-          trace.getSpan(context.active()) === undefined)
+        (config.requireParentSpan === true && trace.getSpan(context.active()) === undefined)
       ) {
         return original().then((r) => this._wrapInstance(r));
       }
       const span = this.tracer.startSpan(
-        buildSpanName({ operationName: "RESERVE", namespace: ctx.namespace, systemName: ctx.systemName }),
-        { kind: SpanKind.CLIENT, attributes: buildCtxAttributes(ctx, { [ATTR_DB_OPERATION_NAME]: "RESERVE" }) },
+        buildSpanName({
+          operationName: "RESERVE",
+          namespace: ctx.namespace,
+          systemName: ctx.systemName,
+        }),
+        {
+          kind: SpanKind.CLIENT,
+          attributes: buildCtxAttributes(ctx, { [ATTR_DB_OPERATION_NAME]: "RESERVE" }),
+        },
       );
       return original().then(
-        (r) => { span.end(); return this._wrapInstance(r); },
-        (e: Error) => { this._recordError(span, e); span.end(); throw e; },
+        (r) => {
+          span.end();
+          return this._wrapInstance(r);
+        },
+        (e: Error) => {
+          this._recordError(span, e);
+          span.end();
+          throw e;
+        },
       );
     };
   }
 
-  private _wrapClose(
-    original: () => Promise<void>,
-    ctx: InstanceContext,
-  ): () => Promise<void> {
+  private _wrapClose(original: () => Promise<void>, ctx: InstanceContext): () => Promise<void> {
     return (): Promise<void> => {
       const config = this.getConfig();
       if (
         config.ignoreConnectionSpans === true ||
-        (config.requireParentSpan === true &&
-          trace.getSpan(context.active()) === undefined)
+        (config.requireParentSpan === true && trace.getSpan(context.active()) === undefined)
       ) {
         return original();
       }
       const span = this.tracer.startSpan(
-        buildSpanName({ operationName: "CLOSE", namespace: ctx.namespace, systemName: ctx.systemName }),
-        { kind: SpanKind.CLIENT, attributes: buildCtxAttributes(ctx, { [ATTR_DB_OPERATION_NAME]: "CLOSE" }) },
+        buildSpanName({
+          operationName: "CLOSE",
+          namespace: ctx.namespace,
+          systemName: ctx.systemName,
+        }),
+        {
+          kind: SpanKind.CLIENT,
+          attributes: buildCtxAttributes(ctx, { [ATTR_DB_OPERATION_NAME]: "CLOSE" }),
+        },
       );
       return original().then(
         // oxlint-disable-next-line promise/always-return
-        () => { span.end(); },
-        (e: Error) => { this._recordError(span, e); span.end(); throw e; },
+        () => {
+          span.end();
+        },
+        (e: Error) => {
+          this._recordError(span, e);
+          span.end();
+          throw e;
+        },
       );
     };
   }
@@ -408,11 +392,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     span: Span,
     config: BunSqlInstrumentationConfig,
   ): unknown {
-    if (
-      typeof queryResult !== "object" ||
-      queryResult === null ||
-      !("then" in queryResult)
-    ) {
+    if (typeof queryResult !== "object" || queryResult === null || !("then" in queryResult)) {
       span.end();
       return queryResult;
     }
@@ -435,10 +415,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
           return onFulfilled === undefined ? data : onFulfilled(data);
         },
         (error: unknown) => {
-          this._recordError(
-            span,
-            error instanceof Error ? error : new Error(String(error)),
-          );
+          this._recordError(span, error instanceof Error ? error : new Error(String(error)));
           span.end();
           if (onRejected !== undefined) return onRejected(error);
           throw error;
@@ -477,13 +454,9 @@ export class BunSqlInstrumentation extends InstrumentationBase {
 
     if (config.responseHook !== undefined) {
       const rowCount =
-        isRecord(data) && typeof data["count"] === "number"
-          ? data["count"]
-          : undefined;
+        isRecord(data) && typeof data["count"] === "number" ? data["count"] : undefined;
       const command =
-        isRecord(data) && typeof data["command"] === "string"
-          ? data["command"]
-          : undefined;
+        isRecord(data) && typeof data["command"] === "string" ? data["command"] : undefined;
       safeExecuteInTheMiddle(
         () => {
           config.responseHook!(span, {
@@ -522,7 +495,9 @@ export class BunSqlInstrumentation extends InstrumentationBase {
   ): void {
     if (config.requestHook !== undefined) {
       safeExecuteInTheMiddle(
-        () => { config.requestHook!(span, info); },
+        () => {
+          config.requestHook!(span, info);
+        },
         (err) => {
           if (err) this._diag.error("Error in requestHook", err);
         },

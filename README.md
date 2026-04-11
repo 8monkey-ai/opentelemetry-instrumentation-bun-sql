@@ -30,10 +30,7 @@ registerInstrumentations({
 
 ```typescript
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
-import {
-  SimpleSpanProcessor,
-  ConsoleSpanExporter,
-} from "@opentelemetry/sdk-trace-base";
+import { SimpleSpanProcessor, ConsoleSpanExporter } from "@opentelemetry/sdk-trace-base";
 import { registerInstrumentations } from "@opentelemetry/instrumentation";
 import { BunSqlInstrumentation } from "@8monkey/opentelemetry-instrumentation-bun-sql";
 
@@ -57,17 +54,17 @@ This instrumentation follows the [OpenTelemetry Database Semantic Conventions](h
 
 ### Attributes
 
-| Attribute | Description |
-|---|---|
-| `db.system.name` | Database system: `postgresql`, `mysql`, or `sqlite` |
-| `db.operation.name` | SQL operation: `SELECT`, `INSERT`, `UPDATE`, `DELETE`, etc. |
-| `db.query.text` | The SQL query text (parameterized for tagged templates, sanitized for unsafe queries) |
-| `db.namespace` | Database name or SQLite filename |
-| `db.response.returned_rows` | Number of rows returned |
-| `server.address` | Server hostname (PostgreSQL/MySQL) |
-| `server.port` | Server port (PostgreSQL/MySQL) |
-| `error.type` | Error class name (e.g., `SQLiteError`, `PostgresError`) |
-| `db.response.status_code` | Database-specific error code |
+| Attribute                   | Description                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------- |
+| `db.system.name`            | Database system: `postgresql`, `mysql`, or `sqlite`                                   |
+| `db.operation.name`         | SQL operation: `SELECT`, `INSERT`, `UPDATE`, `DELETE`, etc.                           |
+| `db.query.text`             | The SQL query text (parameterized for tagged templates, sanitized for unsafe queries) |
+| `db.namespace`              | Database name or SQLite filename                                                      |
+| `db.response.returned_rows` | Number of rows returned                                                               |
+| `server.address`            | Server hostname (PostgreSQL/MySQL)                                                    |
+| `server.port`               | Server port (PostgreSQL/MySQL)                                                        |
+| `error.type`                | Error class name (e.g., `SQLiteError`, `PostgresError`)                               |
+| `db.response.status_code`   | Database-specific error code                                                          |
 
 ### Span names
 
@@ -80,16 +77,16 @@ Span names follow the OTel convention priority:
 
 ## Configuration
 
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `requireParentSpan` | `boolean` | `false` | Only create spans when a parent span exists in context |
-| `enhancedDatabaseReporting` | `boolean` | `false` | Include query parameters (`db.query.parameter.<n>`) and result data in spans |
-| `ignoreConnectionSpans` | `boolean` | `false` | Suppress spans for `CLOSE` and `RESERVE` operations |
-| `maskStatement` | `boolean` | `true` | Replace integer literals and quoted strings with `?` in non-parameterized queries (`sql.unsafe()`) |
-| `maskStatementHook` | `(query: string) => string` | Built-in masker | Custom masking function for non-parameterized queries |
-| `addSqlCommenterComment` | `boolean` | `false` | Append SQL commenter traceparent comments to queries |
-| `requestHook` | `(span, info) => void` | - | Called before query execution to customize span attributes |
-| `responseHook` | `(span, info) => void` | - | Called after query execution with response metadata |
+| Option                      | Type                        | Default         | Description                                                                                        |
+| --------------------------- | --------------------------- | --------------- | -------------------------------------------------------------------------------------------------- |
+| `requireParentSpan`         | `boolean`                   | `false`         | Only create spans when a parent span exists in context                                             |
+| `enhancedDatabaseReporting` | `boolean`                   | `false`         | Include query parameters (`db.query.parameter.<n>`) and result data in spans                       |
+| `ignoreConnectionSpans`     | `boolean`                   | `false`         | Suppress spans for `CLOSE` and `RESERVE` operations                                                |
+| `maskStatement`             | `boolean`                   | `true`          | Replace integer literals and quoted strings with `?` in non-parameterized queries (`sql.unsafe()`) |
+| `maskStatementHook`         | `(query: string) => string` | Built-in masker | Custom masking function for non-parameterized queries                                              |
+| `addSqlCommenterComment`    | `boolean`                   | `false`         | Append SQL commenter traceparent comments to queries                                               |
+| `requestHook`               | `(span, info) => void`      | -               | Called before query execution to customize span attributes                                         |
+| `responseHook`              | `(span, info) => void`      | -               | Called after query execution with response metadata                                                |
 
 ### Example with hooks
 
@@ -121,11 +118,11 @@ new BunSqlInstrumentation({
 
 ### Query text handling
 
-| Query type | `db.query.text` behavior |
-|---|---|
-| Tagged template | Parameterized: `SELECT * FROM users WHERE id = $1` |
-| `sql.unsafe()` | Sanitized by default: `SELECT * FROM users WHERE name = ?` |
-| `sql.unsafe()` with `maskStatement: false` | Raw text preserved |
+| Query type                                 | `db.query.text` behavior                                   |
+| ------------------------------------------ | ---------------------------------------------------------- |
+| Tagged template                            | Parameterized: `SELECT * FROM users WHERE id = $1`         |
+| `sql.unsafe()`                             | Sanitized by default: `SELECT * FROM users WHERE name = ?` |
+| `sql.unsafe()` with `maskStatement: false` | Raw text preserved                                         |
 
 ## License
 

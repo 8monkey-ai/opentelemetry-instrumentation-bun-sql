@@ -3,11 +3,11 @@
   "version": "0.1.0-rc0",
   "description": "OpenTelemetry instrumentation for `Bun.SQL` database client for PostgresSQL / MySQL / SQLite",
   "keywords": [
+    "bun",
+    "mysql",
     "opentelemetry",
     "otel",
-    "bun",
     "postgresql",
-    "mysql",
     "sqlite"
   ],
   "homepage": "https://hebo.ai",

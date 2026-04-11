@@ -42,9 +42,7 @@ export function buildParameterizedQuery(strings: TemplateStringsArray): string {
  * - Operators
  */
 export function sanitizeQuery(sql: string): string {
-  return sql
-    .replaceAll(/\b\d+\b/g, "?")
-    .replaceAll(/(["'])(?:(?=(\\?))\2.)*?\1/g, "?");
+  return sql.replaceAll(/\b\d+\b/g, "?").replaceAll(/(["'])(?:(?=(\\?))\2.)*?\1/g, "?");
 }
 
 /**
@@ -88,9 +86,7 @@ export function getDbSystemName(adapter: string | undefined): string {
 /**
  * Extract database namespace (database name) from SQL instance options.
  */
-export function getDbNamespace(
-  options: Record<string, unknown>,
-): string | undefined {
+export function getDbNamespace(options: Record<string, unknown>): string | undefined {
   if (typeof options["database"] === "string") return options["database"];
   if (typeof options["filename"] === "string") {
     const filename = options["filename"];
@@ -102,9 +98,7 @@ export function getDbNamespace(
 /**
  * Extract server address from SQL instance options.
  */
-export function getServerAddress(
-  options: Record<string, unknown>,
-): string | undefined {
+export function getServerAddress(options: Record<string, unknown>): string | undefined {
   if (typeof options["hostname"] === "string") return options["hostname"];
   if (typeof options["host"] === "string") return options["host"];
   return undefined;
@@ -113,9 +107,7 @@ export function getServerAddress(
 /**
  * Extract server port from SQL instance options.
  */
-export function getServerPort(
-  options: Record<string, unknown>,
-): number | undefined {
+export function getServerPort(options: Record<string, unknown>): number | undefined {
   if (typeof options["port"] === "number") return options["port"];
   return undefined;
 }

@@ -1,5 +1,5 @@
-import type { InstrumentationConfig } from "@opentelemetry/instrumentation";
 import type { Span } from "@opentelemetry/api";
+import type { InstrumentationConfig } from "@opentelemetry/instrumentation";
 
 export interface BunSqlRequestHookInformation {
   /** The SQL query text (parameterized for tagged templates, raw for unsafe). */

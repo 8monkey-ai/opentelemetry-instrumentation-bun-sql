@@ -17,9 +17,7 @@ describe("extractOperationName", () => {
   });
 
   test("extracts INSERT", () => {
-    expect(extractOperationName("INSERT INTO users (name) VALUES ($1)")).toBe(
-      "INSERT",
-    );
+    expect(extractOperationName("INSERT INTO users (name) VALUES ($1)")).toBe("INSERT");
   });
 
   test("extracts UPDATE", () => {
@@ -27,9 +25,7 @@ describe("extractOperationName", () => {
   });
 
   test("extracts DELETE", () => {
-    expect(extractOperationName("DELETE FROM users WHERE id = $1")).toBe(
-      "DELETE",
-    );
+    expect(extractOperationName("DELETE FROM users WHERE id = $1")).toBe("DELETE");
   });
 
   test("extracts CREATE", () => {
@@ -77,21 +73,14 @@ describe("buildParameterizedQuery", () => {
     const strings = Object.assign(["SELECT * FROM users WHERE id = ", ""], {
       raw: ["SELECT * FROM users WHERE id = ", ""],
     }) as TemplateStringsArray;
-    expect(buildParameterizedQuery(strings)).toBe(
-      "SELECT * FROM users WHERE id = $1",
-    );
+    expect(buildParameterizedQuery(strings)).toBe("SELECT * FROM users WHERE id = $1");
   });
 
   test("builds query with multiple parameters", () => {
-    const strings = Object.assign(
-      ["INSERT INTO users (name, age) VALUES (", ", ", ")"],
-      {
-        raw: ["INSERT INTO users (name, age) VALUES (", ", ", ")"],
-      },
-    ) as TemplateStringsArray;
-    expect(buildParameterizedQuery(strings)).toBe(
-      "INSERT INTO users (name, age) VALUES ($1, $2)",
-    );
+    const strings = Object.assign(["INSERT INTO users (name, age) VALUES (", ", ", ")"], {
+      raw: ["INSERT INTO users (name, age) VALUES (", ", ", ")"],
+    }) as TemplateStringsArray;
+    expect(buildParameterizedQuery(strings)).toBe("INSERT INTO users (name, age) VALUES ($1, $2)");
   });
 });
 
@@ -103,9 +92,7 @@ describe("sanitizeQuery", () => {
   });
 
   test("replaces escaped quotes in strings", () => {
-    expect(sanitizeQuery("SELECT * WHERE name = 'it\\'s'")).toBe(
-      "SELECT * WHERE name = ?",
-    );
+    expect(sanitizeQuery("SELECT * WHERE name = 'it\\'s'")).toBe("SELECT * WHERE name = ?");
   });
 
   test("replaces integer literals", () => {
@@ -115,29 +102,21 @@ describe("sanitizeQuery", () => {
   });
 
   test("replaces integer part of decimal literals", () => {
-    expect(sanitizeQuery("SELECT * WHERE price > 3.14")).toBe(
-      "SELECT * WHERE price > ?.?",
-    );
+    expect(sanitizeQuery("SELECT * WHERE price > 3.14")).toBe("SELECT * WHERE price > ?.?");
   });
 
   test("preserves identifiers and keywords", () => {
-    expect(sanitizeQuery("SELECT name, age FROM users")).toBe(
-      "SELECT name, age FROM users",
-    );
+    expect(sanitizeQuery("SELECT name, age FROM users")).toBe("SELECT name, age FROM users");
   });
 
   test("handles multiple replacements", () => {
-    expect(
-      sanitizeQuery(
-        "SELECT * FROM users WHERE name = 'alice' AND age = 30",
-      ),
-    ).toBe("SELECT * FROM users WHERE name = ? AND age = ?");
+    expect(sanitizeQuery("SELECT * FROM users WHERE name = 'alice' AND age = 30")).toBe(
+      "SELECT * FROM users WHERE name = ? AND age = ?",
+    );
   });
 
   test("preserves qualified names with dots", () => {
-    expect(sanitizeQuery("SELECT schema.table FROM t")).toBe(
-      "SELECT schema.table FROM t",
-    );
+    expect(sanitizeQuery("SELECT schema.table FROM t")).toBe("SELECT schema.table FROM t");
   });
 });
 
@@ -226,9 +205,7 @@ describe("getDbNamespace", () => {
 
 describe("getServerAddress", () => {
   test("returns hostname", () => {
-    expect(getServerAddress({ hostname: "db.example.com" })).toBe(
-      "db.example.com",
-    );
+    expect(getServerAddress({ hostname: "db.example.com" })).toBe("db.example.com");
   });
 
   test("returns host", () => {
@@ -236,9 +213,9 @@ describe("getServerAddress", () => {
   });
 
   test("prefers hostname over host", () => {
-    expect(
-      getServerAddress({ hostname: "db.example.com", host: "localhost" }),
-    ).toBe("db.example.com");
+    expect(getServerAddress({ hostname: "db.example.com", host: "localhost" })).toBe(
+      "db.example.com",
+    );
   });
 
   test("returns undefined when no host info", () => {
