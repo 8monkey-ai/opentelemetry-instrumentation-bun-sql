@@ -111,6 +111,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       if (bunModule === undefined) return;
 
       if (bunModule.SQL !== undefined && bunModule.SQL !== null) {
+        // oxlint-disable-next-line no-unsafe-type-assertion
         const OrigSQL = bunModule.SQL as new (
           ...args: unknown[]
         ) => SQL;
@@ -187,6 +188,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
 
   private _getBunModule(): { SQL: unknown; sql: SQL | null | undefined } | undefined {
     try {
+      // oxlint-disable-next-line no-unsafe-type-assertion
       return require("bun") as unknown as { SQL: unknown; sql: SQL | null | undefined };
     } catch {
       return undefined;
@@ -228,6 +230,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
               target.begin((tx: SQL) => callback(this._wrapInstance(tx)));
           case "savepoint":
             return (callback: (tx: SQL) => Promise<unknown>): Promise<unknown> =>
+              // oxlint-disable-next-line no-unsafe-type-assertion
               (target as TransactionSQL).savepoint((tx: SQL) =>
                 callback(this._wrapInstance(tx)),
               );
@@ -263,6 +266,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     ctx: InstanceContext,
   ): unknown {
     const config = this.getConfig();
+    // oxlint-disable-next-line no-unsafe-type-assertion
     const strings = args[0] as TemplateStringsArray;
     const params = args.slice(1);
     const queryText = buildParameterizedQuery(strings);
@@ -275,6 +279,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     return this._execQuery(queryText, operationName, params, ctx, config, (span) => {
       if (config.addSqlCommenterComment === true) {
         const commentedQuery = addSqlCommenterComment(span, queryText);
+        // oxlint-disable-next-line no-unsafe-type-assertion
         const syntheticStrings = [commentedQuery] as unknown as TemplateStringsArray;
         Object.defineProperty(syntheticStrings, "raw", { value: [commentedQuery] });
         return instance(syntheticStrings);
@@ -384,6 +389,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
         { kind: SpanKind.CLIENT, attributes: buildCtxAttributes(ctx, { [ATTR_DB_OPERATION_NAME]: "CLOSE" }) },
       );
       return original().then(
+        // oxlint-disable-next-line promise/always-return
         () => { span.end(); },
         (e: Error) => { this._recordError(span, e); span.end(); throw e; },
       );
@@ -411,6 +417,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     }
 
     const resultObj = queryResult as Record<string, unknown>;
+    // oxlint-disable-next-line no-unsafe-type-assertion
     const origThen = resultObj["then"] as (
       onFulfilled?: (value: unknown) => unknown,
       onRejected?: (reason: unknown) => unknown,
@@ -452,6 +459,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
           }
           return value;
         }
+        // oxlint-disable-next-line no-unsafe-return
         return Reflect.get(target, prop, receiver);
       },
     });
