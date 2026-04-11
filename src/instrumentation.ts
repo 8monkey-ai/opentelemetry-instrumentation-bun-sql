@@ -18,7 +18,7 @@ import {
   ATTR_SERVER_PORT,
 } from "@opentelemetry/semantic-conventions";
 
-import type { BunSqlInstance, BunSqlTransaction } from "./internal-types.js";
+import type { SQL, TransactionSQL } from "bun";
 import {
   ATTR_DB_QUERY_PARAMETER_PREFIX,
   ATTR_DB_RESPONSE_RETURNED_ROWS,
@@ -35,10 +35,6 @@ import {
   sanitizeQuery,
 } from "./utils.js";
 import { VERSION } from "./version.js";
-
-// Bun provides require() in ESM context; declare it for TypeScript builds
-// that strip Bun types (tsconfig.build.json has "types": []).
-declare const require: (id: string) => Record<string, unknown>;
 
 const INSTRUMENTATION_NAME = "@8monkey/opentelemetry-instrumentation-bun-sql";
 
@@ -83,9 +79,9 @@ export class BunSqlInstrumentation extends InstrumentationBase {
   // InstrumentationBase.constructor calls enable() before subclass field
   // initializers run, which would overwrite state set during enable().
   declare private _originalSQL:
-    | (new (...args: unknown[]) => BunSqlInstance)
+    | (new (...args: unknown[]) => SQL)
     | null;
-  declare private _originalSqlSingleton: BunSqlInstance | null;
+  declare private _originalSqlSingleton: SQL | null;
   declare private _patched: boolean;
 
   constructor(config?: BunSqlInstrumentationConfig) {
@@ -119,7 +115,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       if (bunModule.SQL !== undefined && bunModule.SQL !== null) {
         const OrigSQL = bunModule.SQL as new (
           ...args: unknown[]
-        ) => BunSqlInstance;
+        ) => SQL;
         this._originalSQL = OrigSQL;
         const wrapInstance = this._wrapInstance.bind(this);
 
@@ -127,7 +123,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
         const wrappedSQL = function SQL(
           this: unknown,
           ...args: unknown[]
-        ): BunSqlInstance {
+        ): SQL {
           const instance = new OrigSQL(...args);
           return wrapInstance(instance);
         };
@@ -157,8 +153,8 @@ export class BunSqlInstrumentation extends InstrumentationBase {
         (!isRecord(sqlVal) ||
           (sqlVal as Record<string | symbol, unknown>)[WRAPPED] !== true)
       ) {
-        this._originalSqlSingleton = sqlVal as BunSqlInstance;
-        bunModule.sql = this._wrapInstance(sqlVal as BunSqlInstance);
+        this._originalSqlSingleton = sqlVal as SQL;
+        bunModule.sql = this._wrapInstance(sqlVal as SQL);
       }
 
       this._patched = true;
@@ -203,7 +199,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
    * Wrap a Bun SQL instance with a Proxy to intercept tagged template calls
    * and method invocations.
    */
-  _wrapInstance(instance: BunSqlInstance): BunSqlInstance {
+  _wrapInstance(instance: SQL): SQL {
     if (
       (instance as unknown as Record<string | symbol, unknown>)[WRAPPED] ===
       true
@@ -238,8 +234,8 @@ export class BunSqlInstrumentation extends InstrumentationBase {
             return this._wrapBegin(target.begin.bind(target), ctx);
           case "savepoint":
             return this._wrapSavepoint(
-              (target as BunSqlTransaction).savepoint.bind(
-                target as BunSqlTransaction,
+              (target as TransactionSQL).savepoint.bind(
+                target as TransactionSQL,
               ),
               ctx,
             );
@@ -277,7 +273,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
   }
 
   private _handleTaggedTemplate(
-    instance: BunSqlInstance,
+    instance: SQL,
     args: unknown[],
     ctx: InstanceContext,
   ): unknown {
@@ -456,14 +452,14 @@ export class BunSqlInstrumentation extends InstrumentationBase {
 
   private _wrapBegin(
     original: (
-      callback: (tx: BunSqlInstance) => Promise<unknown>,
+      callback: (tx: SQL) => Promise<unknown>,
     ) => Promise<unknown>,
     ctx: InstanceContext,
   ): (
-    callback: (tx: BunSqlInstance) => Promise<unknown>,
+    callback: (tx: SQL) => Promise<unknown>,
   ) => Promise<unknown> {
     return (
-      callback: (tx: BunSqlInstance) => Promise<unknown>,
+      callback: (tx: SQL) => Promise<unknown>,
     ): Promise<unknown> => {
       const config = this.getConfig();
 
@@ -487,7 +483,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
         }),
       });
 
-      const wrappedCallback = (tx: BunSqlInstance): Promise<unknown> => {
+      const wrappedCallback = (tx: SQL): Promise<unknown> => {
         const wrappedTx = this._wrapInstance(tx);
         return context.with(trace.setSpan(context.active(), span), () =>
           callback(wrappedTx),
@@ -510,14 +506,14 @@ export class BunSqlInstrumentation extends InstrumentationBase {
 
   private _wrapSavepoint(
     original: (
-      callback: (tx: BunSqlInstance) => Promise<unknown>,
+      callback: (tx: SQL) => Promise<unknown>,
     ) => Promise<unknown>,
     ctx: InstanceContext,
   ): (
-    callback: (tx: BunSqlInstance) => Promise<unknown>,
+    callback: (tx: SQL) => Promise<unknown>,
   ) => Promise<unknown> {
     return (
-      callback: (tx: BunSqlInstance) => Promise<unknown>,
+      callback: (tx: SQL) => Promise<unknown>,
     ): Promise<unknown> => {
       const config = this.getConfig();
 
@@ -541,7 +537,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
         }),
       });
 
-      const wrappedCallback = (tx: BunSqlInstance): Promise<unknown> => {
+      const wrappedCallback = (tx: SQL): Promise<unknown> => {
         const wrappedTx = this._wrapInstance(tx);
         return context.with(trace.setSpan(context.active(), span), () =>
           callback(wrappedTx),
@@ -565,16 +561,16 @@ export class BunSqlInstrumentation extends InstrumentationBase {
   private _wrapBeginDistributed(
     original: (
       id: string,
-      callback: (tx: BunSqlInstance) => Promise<unknown>,
+      callback: (tx: SQL) => Promise<unknown>,
     ) => Promise<unknown>,
     ctx: InstanceContext,
   ): (
     id: string,
-    callback: (tx: BunSqlInstance) => Promise<unknown>,
+    callback: (tx: SQL) => Promise<unknown>,
   ) => Promise<unknown> {
     return (
       id: string,
-      callback: (tx: BunSqlInstance) => Promise<unknown>,
+      callback: (tx: SQL) => Promise<unknown>,
     ): Promise<unknown> => {
       const config = this.getConfig();
 
@@ -598,7 +594,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
         }),
       });
 
-      const wrappedCallback = (tx: BunSqlInstance): Promise<unknown> => {
+      const wrappedCallback = (tx: SQL): Promise<unknown> => {
         const wrappedTx = this._wrapInstance(tx);
         return context.with(trace.setSpan(context.active(), span), () =>
           callback(wrappedTx),
@@ -702,10 +698,10 @@ export class BunSqlInstrumentation extends InstrumentationBase {
   }
 
   private _wrapReserve(
-    original: () => Promise<BunSqlInstance>,
+    original: () => Promise<SQL>,
     ctx: InstanceContext,
-  ): () => Promise<BunSqlInstance> {
-    return (): Promise<BunSqlInstance> => {
+  ): () => Promise<SQL> {
+    return (): Promise<SQL> => {
       const config = this.getConfig();
 
       if (config.ignoreConnectionSpans === true) {
