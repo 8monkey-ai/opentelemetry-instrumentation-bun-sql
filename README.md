@@ -18,22 +18,14 @@ bun add @8monkey/opentelemetry-instrumentation-bun-sql
 ## Usage
 
 ```typescript
-import { BunSqlInstrumentation } from "@8monkey/opentelemetry-instrumentation-bun-sql";
-import { registerInstrumentations } from "@opentelemetry/instrumentation";
-
-registerInstrumentations({
-  instrumentations: [new BunSqlInstrumentation()],
-});
-```
-
-### With a full trace pipeline
-
-```typescript
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import { SimpleSpanProcessor, ConsoleSpanExporter } from "@opentelemetry/sdk-trace-base";
 import { registerInstrumentations } from "@opentelemetry/instrumentation";
 import { BunSqlInstrumentation } from "@8monkey/opentelemetry-instrumentation-bun-sql";
 
+// 1. Register instrumentation before creating any SQL instances.
+//    Bun built-ins bypass Node.js module hooks, so the instrumentation patches
+//    require("bun").SQL at enable time — instances created before this are not traced.
 const provider = new NodeTracerProvider();
 provider.addSpanProcessor(new SimpleSpanProcessor(new ConsoleSpanExporter()));
 provider.register();
@@ -42,8 +34,11 @@ registerInstrumentations({
   instrumentations: [new BunSqlInstrumentation()],
 });
 
-// Now all Bun.SQL queries are automatically traced
-const sql = new Bun.SQL({ adapter: "sqlite" });
+// 2. Create instances via require("bun"), not `import { SQL } from "bun"`.
+//    Static import bindings are resolved at module load time (before step 1 runs)
+//    and therefore always capture the original, unpatched constructor.
+const sql = new (require("bun") as typeof Bun).SQL({ adapter: "sqlite" });
+
 await sql`SELECT 1`;
 await sql.close();
 ```
@@ -124,11 +119,3 @@ new BunSqlInstrumentation({
 | `sql.unsafe()`                             | Sanitized by default: `SELECT * FROM users WHERE name = ?` |
 | `sql.unsafe()` with `maskStatement: false` | Raw text preserved                                         |
 
-## License
-
-Apache-2.0
-
-[npm-url]: https://www.npmjs.com/package/@8monkey/opentelemetry-instrumentation-bun-sql
-[npm-img]: https://badge.fury.io/js/%408monkey%2Fopentelemetry-instrumentation-bun-sql.svg
-[license-url]: https://github.com/8monkey-ai/opentelemetry-instrumentation-bun-sql/blob/main/LICENSE
-[license-image]: https://img.shields.io/badge/license-Apache_2.0-green.svg?style=flat
