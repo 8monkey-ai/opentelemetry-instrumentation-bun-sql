@@ -28,27 +28,12 @@ export function buildParameterizedQuery(strings: TemplateStringsArray): string {
   return query;
 }
 
-// Character classification helpers (using char codes for performance)
-function isDigit(c: number): boolean {
-  return c >= 48 && c <= 57;
-}
-
-function isWordChar(c: number): boolean {
-  return (
-    (c >= 65 && c <= 90) || // A-Z
-    (c >= 97 && c <= 122) || // a-z
-    (c >= 48 && c <= 57) || // 0-9
-    c === 95 // _
-  );
-}
-
 /**
  * Sanitize a non-parameterized query by replacing literal values with `?`.
- * Uses a single-pass character scanner — no regex.
  * Matches the scope of mysql2's default masking (integers and quoted strings).
  *
  * Replaces:
- * - Single-quoted strings: 'hello' → ?
+ * - Single- and double-quoted strings: 'hello' / "hello" → ?
  * - Integer literals: 42 → ?
  *
  * Does NOT replace:
@@ -57,57 +42,9 @@ function isWordChar(c: number): boolean {
  * - Operators
  */
 export function sanitizeQuery(sql: string): string {
-  const len = sql.length;
-  let result = "";
-  let i = 0;
-
-  while (i < len) {
-    const ch = sql.charCodeAt(i);
-
-    // Single-quoted string: 'value' → ?
-    if (ch === 39) {
-      // '
-      i++;
-      while (i < len) {
-        const c = sql.charCodeAt(i);
-        if (c === 92) {
-          // backslash escape
-          i += 2;
-        } else if (c === 39) {
-          // closing '
-          i++;
-          break;
-        } else {
-          i++;
-        }
-      }
-      result += "?";
-      continue;
-    }
-
-    // Identifiers and keywords (start with letter or _)
-    if (isWordChar(ch) && !isDigit(ch)) {
-      const start = i;
-      i++;
-      while (i < len && isWordChar(sql.charCodeAt(i))) i++;
-      result += sql.slice(start, i);
-      continue;
-    }
-
-    // Integer literals → ?
-    if (isDigit(ch)) {
-      i++;
-      while (i < len && isDigit(sql.charCodeAt(i))) i++;
-      result += "?";
-      continue;
-    }
-
-    // Default: pass through
-    result += sql[i];
-    i++;
-  }
-
-  return result;
+  return sql
+    .replace(/\b\d+\b/g, "?")
+    .replace(/(["'])(?:(?=(\\?))\2.)*?\1/g, "?");
 }
 
 /**
