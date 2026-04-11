@@ -1,7 +1,6 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": ["bun-types"],
     "rootDir": "./src",
     "outDir": "./dist",
     "noEmit": false,
