@@ -8,20 +8,11 @@
  * to validate that our query parsing utilities handle PostgreSQL queries
  * correctly.
  */
-import {
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 
+import { PGlite } from "@electric-sql/pglite";
 import { SpanStatusCode } from "@opentelemetry/api";
-import {
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base";
+import { InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import {
   ATTR_DB_NAMESPACE,
@@ -31,33 +22,23 @@ import {
   ATTR_SERVER_ADDRESS,
   ATTR_SERVER_PORT,
 } from "@opentelemetry/semantic-conventions";
-import { PGlite } from "@electric-sql/pglite";
+import { SQL } from "bun";
 
 import { BunSqlInstrumentation } from "../src/instrumentation.js";
-import {
-  buildParameterizedQuery,
-  extractOperationName,
-  getDbSystemName,
-} from "../src/utils.js";
-
-let exporter: InMemorySpanExporter;
-let provider: NodeTracerProvider;
-let instrumentation: BunSqlInstrumentation;
+import { buildParameterizedQuery, extractOperationName, getDbSystemName } from "../src/utils.js";
 
 function createPostgresSql() {
-  const bun = require("bun") as {
-    SQL: new (opts: Record<string, unknown>) => unknown;
-  };
-  if (bun.SQL === undefined) {
-    throw new Error("SQL not found");
-  }
-  return new bun.SQL({
+  return new SQL({
     adapter: "postgres",
     hostname: "localhost",
     port: 5432,
     database: "test_db",
   });
 }
+
+let exporter: InMemorySpanExporter;
+let provider: NodeTracerProvider;
+let instrumentation: BunSqlInstrumentation;
 
 describe("PostgreSQL adapter detection", () => {
   beforeAll(() => {
@@ -82,35 +63,31 @@ describe("PostgreSQL adapter detection", () => {
   });
 
   test("sets db.system.name to postgresql for postgres adapter", async () => {
-    const sql = createPostgresSql() as ReturnType<typeof Function>;
+    const sql = createPostgresSql();
     try {
       await sql`SELECT 1`;
     } catch {
       // Expected: connection failure
     }
-    await (sql as { close: () => Promise<void> }).close();
+    await sql.close();
 
     const spans = exporter.getFinishedSpans();
-    const querySpan = spans.find(
-      (s) => s.attributes[ATTR_DB_OPERATION_NAME] === "SELECT",
-    );
+    const querySpan = spans.find((s) => s.attributes[ATTR_DB_OPERATION_NAME] === "SELECT");
     expect(querySpan).toBeDefined();
     expect(querySpan!.attributes[ATTR_DB_SYSTEM_NAME]).toBe("postgresql");
   });
 
   test("captures server address and port for postgres", async () => {
-    const sql = createPostgresSql() as ReturnType<typeof Function>;
+    const sql = createPostgresSql();
     try {
       await sql`SELECT 1`;
     } catch {
       // Expected
     }
-    await (sql as { close: () => Promise<void> }).close();
+    await sql.close();
 
     const spans = exporter.getFinishedSpans();
-    const querySpan = spans.find(
-      (s) => s.attributes[ATTR_DB_OPERATION_NAME] === "SELECT",
-    );
+    const querySpan = spans.find((s) => s.attributes[ATTR_DB_OPERATION_NAME] === "SELECT");
     expect(querySpan).toBeDefined();
     expect(querySpan!.attributes[ATTR_SERVER_ADDRESS]).toBe("localhost");
     expect(querySpan!.attributes[ATTR_SERVER_PORT]).toBe(5432);
@@ -118,27 +95,22 @@ describe("PostgreSQL adapter detection", () => {
   });
 
   test("records PostgresError on connection failure", async () => {
-    const sql = createPostgresSql() as ReturnType<typeof Function>;
+    const sql = createPostgresSql();
     try {
       await sql`SELECT 1`;
     } catch {
       // Expected
     }
-    await (sql as { close: () => Promise<void> }).close();
+    await sql.close();
 
     const spans = exporter.getFinishedSpans();
-    const errorSpan = spans.find(
-      (s) => s.status.code === SpanStatusCode.ERROR,
-    );
+    const errorSpan = spans.find((s) => s.status.code === SpanStatusCode.ERROR);
     expect(errorSpan).toBeDefined();
     expect(errorSpan!.attributes[ATTR_ERROR_TYPE]).toBe("PostgresError");
   });
 
   test("records PostgresError attributes for unsafe queries", async () => {
-    const sql = createPostgresSql() as {
-      unsafe: (q: string) => Promise<unknown>;
-      close: () => Promise<void>;
-    };
+    const sql = createPostgresSql();
     try {
       await sql.unsafe("SELECT 1");
     } catch {
@@ -147,22 +119,15 @@ describe("PostgreSQL adapter detection", () => {
     await sql.close();
 
     const spans = exporter.getFinishedSpans();
-    const errorSpan = spans.find(
-      (s) => s.status.code === SpanStatusCode.ERROR,
-    );
+    const errorSpan = spans.find((s) => s.status.code === SpanStatusCode.ERROR);
     expect(errorSpan).toBeDefined();
     expect(errorSpan!.attributes[ATTR_DB_SYSTEM_NAME]).toBe("postgresql");
   });
 
   test("instruments postgres transactions with error handling", async () => {
-    const sql = createPostgresSql() as {
-      begin: (
-        cb: (tx: ReturnType<typeof Function>) => Promise<void>,
-      ) => Promise<void>;
-      close: () => Promise<void>;
-    };
+    const sql = createPostgresSql();
     try {
-      await sql.begin(async (tx: ReturnType<typeof Function>) => {
+      await sql.begin(async (tx) => {
         await tx`SELECT 1`;
       });
     } catch {
@@ -171,9 +136,7 @@ describe("PostgreSQL adapter detection", () => {
     await sql.close();
 
     const spans = exporter.getFinishedSpans();
-    const closeSpan = spans.find(
-      (s) => s.attributes[ATTR_DB_OPERATION_NAME] === "CLOSE",
-    );
+    const closeSpan = spans.find((s) => s.attributes[ATTR_DB_OPERATION_NAME] === "CLOSE");
     expect(closeSpan).toBeDefined();
     expect(closeSpan!.attributes[ATTR_DB_SYSTEM_NAME]).toBe("postgresql");
   });
@@ -194,31 +157,24 @@ describe("PGlite query compatibility", () => {
       "CREATE TABLE test_users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT)",
     );
     expect(result.affectedRows).toBe(0);
-    expect(
-      extractOperationName("CREATE TABLE test_users (id SERIAL PRIMARY KEY)"),
-    ).toBe("CREATE");
+    expect(extractOperationName("CREATE TABLE test_users (id SERIAL PRIMARY KEY)")).toBe("CREATE");
   });
 
   test("extractOperationName handles PostgreSQL INSERT RETURNING", async () => {
-    await pg.query(
-      "CREATE TABLE pglite_test (id SERIAL PRIMARY KEY, name TEXT)",
-    );
+    await pg.query("CREATE TABLE pglite_test (id SERIAL PRIMARY KEY, name TEXT)");
     const result = await pg.query(
       "INSERT INTO pglite_test (name) VALUES ('alice') RETURNING id, name",
     );
     expect(result.rows.length).toBe(1);
     expect(
-      extractOperationName(
-        "INSERT INTO pglite_test (name) VALUES ($1) RETURNING id, name",
-      ),
+      extractOperationName("INSERT INTO pglite_test (name) VALUES ($1) RETURNING id, name"),
     ).toBe("INSERT");
   });
 
   test("buildParameterizedQuery creates PostgreSQL-style parameters", () => {
-    const strings = Object.assign(
-      ["SELECT * FROM users WHERE name = ", " AND age > ", ""],
-      { raw: ["SELECT * FROM users WHERE name = ", " AND age > ", ""] },
-    ) as TemplateStringsArray;
+    const strings = Object.assign(["SELECT * FROM users WHERE name = ", " AND age > ", ""], {
+      raw: ["SELECT * FROM users WHERE name = ", " AND age > ", ""],
+    }) as TemplateStringsArray;
 
     const query = buildParameterizedQuery(strings);
     expect(query).toBe("SELECT * FROM users WHERE name = $1 AND age > $2");
@@ -227,12 +183,8 @@ describe("PGlite query compatibility", () => {
   });
 
   test("handles PostgreSQL CTE queries", async () => {
-    await pg.query(
-      "CREATE TABLE cte_test (id SERIAL PRIMARY KEY, parent_id INT, name TEXT)",
-    );
-    await pg.query(
-      "INSERT INTO cte_test (parent_id, name) VALUES (NULL, 'root'), (1, 'child')",
-    );
+    await pg.query("CREATE TABLE cte_test (id SERIAL PRIMARY KEY, parent_id INT, name TEXT)");
+    await pg.query("INSERT INTO cte_test (parent_id, name) VALUES (NULL, 'root'), (1, 'child')");
 
     const cteQuery = `
       WITH RECURSIVE tree AS (

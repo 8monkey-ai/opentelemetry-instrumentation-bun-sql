@@ -1,10 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
-import {
-  InMemorySpanExporter,
-  SimpleSpanProcessor,
-} from "@opentelemetry/sdk-trace-base";
+import { InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import {
   ATTR_DB_NAMESPACE,
@@ -13,6 +10,7 @@ import {
   ATTR_DB_SYSTEM_NAME,
   ATTR_ERROR_TYPE,
 } from "@opentelemetry/semantic-conventions";
+import { SQL } from "bun";
 
 import { BunSqlInstrumentation } from "../src/instrumentation.js";
 import { ATTR_DB_RESPONSE_RETURNED_ROWS } from "../src/semconv.js";
@@ -34,10 +32,7 @@ function enableInstrumentation(config?: BunSqlInstrumentationConfig) {
 }
 
 function createSql() {
-  const bun = require("bun") as {
-    SQL: new (opts: Record<string, string>) => unknown;
-  };
-  return new bun.SQL({ adapter: "sqlite" });
+  return new SQL({ adapter: "sqlite" });
 }
 
 function getSpans() {
@@ -47,8 +42,8 @@ function getSpans() {
 function getQuerySpans(opName?: string) {
   return getSpans().filter((s) => {
     if (opName !== undefined) return s.attributes[ATTR_DB_OPERATION_NAME] === opName;
-    const op = s.attributes[ATTR_DB_OPERATION_NAME] as string;
-    return op !== "CLOSE" && op !== "RESERVE";
+    const op = s.attributes[ATTR_DB_OPERATION_NAME];
+    return typeof op === "string" && op !== "CLOSE" && op !== "RESERVE";
   });
 }
 
@@ -63,9 +58,9 @@ describe("BunSqlInstrumentation", () => {
 
   describe("tagged template queries", () => {
     test("creates span for SELECT query", async () => {
-      const sql = createSql() as ReturnType<typeof Function>;
+      const sql = createSql();
       await sql`SELECT 1 as num`;
-      await (sql as { close: () => Promise<void> }).close();
+      await sql.close();
 
       const spans = getQuerySpans("SELECT");
       expect(spans.length).toBe(1);
@@ -79,11 +74,11 @@ describe("BunSqlInstrumentation", () => {
     });
 
     test("creates span with parameterized query text", async () => {
-      const sql = createSql() as ReturnType<typeof Function>;
+      const sql = createSql();
       await sql`CREATE TABLE param_test(id INTEGER PRIMARY KEY, name TEXT)`;
       await sql`INSERT INTO param_test(name) VALUES(${"alice"})`;
       await sql`SELECT * FROM param_test WHERE name = ${"alice"}`;
-      await (sql as { close: () => Promise<void> }).close();
+      await sql.close();
 
       const selectSpans = getQuerySpans("SELECT");
       expect(selectSpans.length).toBe(1);
@@ -93,27 +88,25 @@ describe("BunSqlInstrumentation", () => {
     });
 
     test("sets db.response.returned_rows", async () => {
-      const sql = createSql() as ReturnType<typeof Function>;
+      const sql = createSql();
       await sql`CREATE TABLE rows_test(id INTEGER PRIMARY KEY, val TEXT)`;
       await sql`INSERT INTO rows_test(val) VALUES(${"a"})`;
       await sql`INSERT INTO rows_test(val) VALUES(${"b"})`;
       await sql`INSERT INTO rows_test(val) VALUES(${"c"})`;
       const result = await sql`SELECT * FROM rows_test`;
-      await (sql as { close: () => Promise<void> }).close();
+      await sql.close();
 
       expect(result.length).toBe(3);
 
       const selectSpans = getQuerySpans("SELECT");
       expect(selectSpans.length).toBe(1);
-      expect(selectSpans[0]!.attributes[ATTR_DB_RESPONSE_RETURNED_ROWS]).toBe(
-        3,
-      );
+      expect(selectSpans[0]!.attributes[ATTR_DB_RESPONSE_RETURNED_ROWS]).toBe(3);
     });
 
     test("supports .values() chaining", async () => {
-      const sql = createSql() as ReturnType<typeof Function>;
+      const sql = createSql();
       const result = await sql`SELECT 1 as a, 2 as b`.values();
-      await (sql as { close: () => Promise<void> }).close();
+      await sql.close();
 
       expect(result[0]).toEqual([1, 2]);
       const selectSpans = getQuerySpans("SELECT");
@@ -123,10 +116,7 @@ describe("BunSqlInstrumentation", () => {
 
   describe("unsafe queries", () => {
     test("creates span for unsafe query", async () => {
-      const sql = createSql() as {
-        unsafe: (q: string) => Promise<unknown>;
-        close: () => Promise<void>;
-      };
+      const sql = createSql();
       await sql.unsafe("SELECT 1 as num");
       await sql.close();
 
@@ -140,10 +130,7 @@ describe("BunSqlInstrumentation", () => {
     });
 
     test("sanitizes string literals by default", async () => {
-      const sql = createSql() as {
-        unsafe: (q: string) => Promise<unknown>;
-        close: () => Promise<void>;
-      };
+      const sql = createSql();
       await sql.unsafe("SELECT * FROM sqlite_master WHERE type = 'table'");
       await sql.close();
 
@@ -156,17 +143,15 @@ describe("BunSqlInstrumentation", () => {
 
   describe("error handling", () => {
     test("records errors on span", async () => {
-      const sql = createSql() as ReturnType<typeof Function>;
+      const sql = createSql();
       try {
         await sql`SELECT * FROM nonexistent_table_xyz`;
       } catch {
         // Expected
       }
-      await (sql as { close: () => Promise<void> }).close();
+      await sql.close();
 
-      const errorSpan = getSpans().find(
-        (s) => s.status.code === SpanStatusCode.ERROR,
-      );
+      const errorSpan = getSpans().find((s) => s.status.code === SpanStatusCode.ERROR);
       expect(errorSpan).toBeDefined();
       expect(errorSpan!.attributes[ATTR_ERROR_TYPE]).toBe("SQLiteError");
       expect(errorSpan!.events.length).toBeGreaterThan(0);
@@ -175,36 +160,24 @@ describe("BunSqlInstrumentation", () => {
 
   describe("transactions", () => {
     test("instruments queries inside transactions", async () => {
-      const sql = createSql() as {
-        begin: (
-          cb: (tx: ReturnType<typeof Function>) => Promise<void>,
-        ) => Promise<void>;
-        close: () => Promise<void>;
-      } & ReturnType<typeof Function>;
+      const sql = createSql();
       await sql`CREATE TABLE tx_test(id INTEGER PRIMARY KEY, val TEXT)`;
 
-      await sql.begin(async (tx: ReturnType<typeof Function>) => {
+      await sql.begin(async (tx) => {
         await tx`INSERT INTO tx_test(val) VALUES(${"hello"})`;
       });
       await sql.close();
 
-      const insertSpan = getSpans().find(
-        (s) => s.attributes[ATTR_DB_OPERATION_NAME] === "INSERT",
-      );
+      const insertSpan = getSpans().find((s) => s.attributes[ATTR_DB_OPERATION_NAME] === "INSERT");
       expect(insertSpan).toBeDefined();
     });
 
     test("instruments queries inside failed transactions", async () => {
-      const sql = createSql() as {
-        begin: (
-          cb: (tx: ReturnType<typeof Function>) => Promise<void>,
-        ) => Promise<void>;
-        close: () => Promise<void>;
-      } & ReturnType<typeof Function>;
+      const sql = createSql();
       await sql`CREATE TABLE tx_err(id INTEGER PRIMARY KEY, val TEXT)`;
 
       try {
-        await sql.begin(async (tx: ReturnType<typeof Function>) => {
+        await sql.begin(async (tx) => {
           await tx`INSERT INTO tx_err(val) VALUES(${"hello"})`;
           throw new Error("deliberate rollback");
         });
@@ -213,30 +186,17 @@ describe("BunSqlInstrumentation", () => {
       }
       await sql.close();
 
-      const insertSpan = getSpans().find(
-        (s) => s.attributes[ATTR_DB_OPERATION_NAME] === "INSERT",
-      );
+      const insertSpan = getSpans().find((s) => s.attributes[ATTR_DB_OPERATION_NAME] === "INSERT");
       expect(insertSpan).toBeDefined();
     });
 
     test("creates spans for nested savepoints", async () => {
-      const sql = createSql() as {
-        begin: (
-          cb: (
-            tx: ReturnType<typeof Function> & {
-              savepoint: (
-                cb: (sp: ReturnType<typeof Function>) => Promise<void>,
-              ) => Promise<void>;
-            },
-          ) => Promise<void>,
-        ) => Promise<void>;
-        close: () => Promise<void>;
-      } & ReturnType<typeof Function>;
+      const sql = createSql();
       await sql`CREATE TABLE sp_test(id INTEGER PRIMARY KEY, val TEXT)`;
 
       await sql.begin(async (tx) => {
         await tx`INSERT INTO sp_test(val) VALUES(${"outer"})`;
-        await tx.savepoint(async (sp: ReturnType<typeof Function>) => {
+        await tx.savepoint(async (sp) => {
           await sp`INSERT INTO sp_test(val) VALUES(${"inner"})`;
         });
       });
@@ -249,13 +209,11 @@ describe("BunSqlInstrumentation", () => {
 
   describe("connection management", () => {
     test("creates span for close", async () => {
-      const sql = createSql() as ReturnType<typeof Function>;
+      const sql = createSql();
       await sql`SELECT 1`;
-      await (sql as { close: () => Promise<void> }).close();
+      await sql.close();
 
-      const closeSpan = getSpans().find(
-        (s) => s.attributes[ATTR_DB_OPERATION_NAME] === "CLOSE",
-      );
+      const closeSpan = getSpans().find((s) => s.attributes[ATTR_DB_OPERATION_NAME] === "CLOSE");
       expect(closeSpan).toBeDefined();
       expect(closeSpan!.attributes[ATTR_DB_SYSTEM_NAME]).toBe("sqlite");
     });
@@ -273,9 +231,9 @@ describe("BunSqlInstrumentation config options", () => {
   test("requireParentSpan suppresses orphan spans", async () => {
     enableInstrumentation({ requireParentSpan: true });
 
-    const sql = createSql() as ReturnType<typeof Function>;
+    const sql = createSql();
     await sql`SELECT 1`;
-    await (sql as { close: () => Promise<void> }).close();
+    await sql.close();
 
     expect(getSpans().length).toBe(0);
   });
@@ -283,13 +241,13 @@ describe("BunSqlInstrumentation config options", () => {
   test("requireParentSpan creates spans with parent", async () => {
     enableInstrumentation({ requireParentSpan: true });
 
-    const sql = createSql() as ReturnType<typeof Function>;
+    const sql = createSql();
     const tracer = trace.getTracer("test");
     await tracer.startActiveSpan("parent", async (parentSpan) => {
       await sql`SELECT 1`;
       parentSpan.end();
     });
-    await (sql as { close: () => Promise<void> }).close();
+    await sql.close();
 
     const selectSpans = getQuerySpans("SELECT");
     expect(selectSpans.length).toBe(1);
@@ -298,13 +256,11 @@ describe("BunSqlInstrumentation config options", () => {
   test("ignoreConnectionSpans suppresses close spans", async () => {
     enableInstrumentation({ ignoreConnectionSpans: true });
 
-    const sql = createSql() as ReturnType<typeof Function>;
+    const sql = createSql();
     await sql`SELECT 1`;
-    await (sql as { close: () => Promise<void> }).close();
+    await sql.close();
 
-    const closeSpan = getSpans().find(
-      (s) => s.attributes[ATTR_DB_OPERATION_NAME] === "CLOSE",
-    );
+    const closeSpan = getSpans().find((s) => s.attributes[ATTR_DB_OPERATION_NAME] === "CLOSE");
     expect(closeSpan).toBeUndefined();
 
     const selectSpans = getQuerySpans("SELECT");
@@ -314,9 +270,9 @@ describe("BunSqlInstrumentation config options", () => {
   test("enhancedDatabaseReporting includes parameters", async () => {
     enableInstrumentation({ enhancedDatabaseReporting: true });
 
-    const sql = createSql() as ReturnType<typeof Function>;
+    const sql = createSql();
     await sql`SELECT ${"hello"} as val`;
-    await (sql as { close: () => Promise<void> }).close();
+    await sql.close();
 
     const selectSpans = getQuerySpans("SELECT");
     expect(selectSpans.length).toBe(1);
@@ -326,10 +282,7 @@ describe("BunSqlInstrumentation config options", () => {
   test("maskStatement: false preserves raw text", async () => {
     enableInstrumentation({ maskStatement: false });
 
-    const sql = createSql() as {
-      unsafe: (q: string) => Promise<unknown>;
-      close: () => Promise<void>;
-    };
+    const sql = createSql();
     await sql.unsafe("SELECT * FROM sqlite_master WHERE type = 'table'");
     await sql.close();
 
@@ -348,9 +301,9 @@ describe("BunSqlInstrumentation config options", () => {
       },
     });
 
-    const sql = createSql() as ReturnType<typeof Function>;
+    const sql = createSql();
     await sql`SELECT 1 as num`;
-    await (sql as { close: () => Promise<void> }).close();
+    await sql.close();
 
     expect(hookCalled).toBe(true);
     const selectSpans = getQuerySpans("SELECT");
@@ -365,9 +318,9 @@ describe("BunSqlInstrumentation config options", () => {
       },
     });
 
-    const sql = createSql() as ReturnType<typeof Function>;
+    const sql = createSql();
     await sql`SELECT 1 as num`;
-    await (sql as { close: () => Promise<void> }).close();
+    await sql.close();
 
     expect(capturedRowCount).toBe(1);
   });
@@ -377,18 +330,11 @@ describe("BunSqlInstrumentation config options", () => {
       maskStatementHook: (query) => query.replaceAll("secret", "[REDACTED]"),
     });
 
-    const sql = createSql() as {
-      unsafe: (q: string) => Promise<unknown>;
-      close: () => Promise<void>;
-    };
+    const sql = createSql();
     await sql.unsafe("SELECT 'secret' as val");
     await sql.close();
 
     const selectSpans = getQuerySpans("SELECT");
-    expect(
-      (selectSpans[0]!.attributes[ATTR_DB_QUERY_TEXT] as string).includes(
-        "[REDACTED]",
-      ),
-    ).toBe(true);
+    expect(selectSpans[0]!.attributes[ATTR_DB_QUERY_TEXT]).toContain("[REDACTED]");
   });
 });
