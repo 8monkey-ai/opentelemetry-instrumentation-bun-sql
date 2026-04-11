@@ -1,0 +1,74 @@
+import type { InstrumentationConfig } from "@opentelemetry/instrumentation";
+import type { Span } from "@opentelemetry/api";
+
+export interface QueryInfo {
+  /** The SQL query text (parameterized for tagged templates, raw for unsafe). */
+  query: string;
+  /** The SQL operation name (SELECT, INSERT, etc.). */
+  operation?: string;
+  /** Query parameter values (only present for tagged template queries). */
+  params?: unknown[];
+}
+
+export interface ResponseInfo {
+  /** Number of rows returned. */
+  rowCount?: number;
+  /** The command type (SELECT, INSERT, etc.). */
+  command?: string;
+  /** Raw query result data. */
+  data?: unknown;
+}
+
+export interface BunSqlInstrumentationConfig extends InstrumentationConfig {
+  /**
+   * Attach query parameters and result data to spans.
+   * Parameters are Opt-In per OTel DB semconv.
+   * @default false
+   */
+  enhancedDatabaseReporting?: boolean;
+
+  /**
+   * Only create spans when a parent span exists in the current context.
+   * Useful for reducing noise in high-throughput systems.
+   * @default false
+   */
+  requireParentSpan?: boolean;
+
+  /**
+   * Suppress connection-level spans (reserve/release/close).
+   * @default false
+   */
+  ignoreConnectionSpans?: boolean;
+
+  /**
+   * Sanitize non-parameterized queries (sql.unsafe(), sql.file()) by
+   * replacing literal values with `?` placeholders.
+   * Per OTel semconv, non-parameterized queries SHOULD be sanitized by default.
+   * @default true
+   */
+  sanitizeNonParameterizedQueries?: boolean;
+
+  /**
+   * Custom sanitization function for non-parameterized queries.
+   * Only used when `sanitizeNonParameterizedQueries` is true.
+   * @default Replaces string/numeric/boolean literals with `?`
+   */
+  sanitizationHook?: (query: string) => string;
+
+  /**
+   * Add SQL commenter traceparent comments to queries.
+   * Per OTel semconv, SHOULD NOT be enabled by default.
+   * @default false
+   */
+  addSqlCommenterComment?: boolean;
+
+  /**
+   * Hook called before query execution to customize span attributes.
+   */
+  requestHook?: (span: Span, info: QueryInfo) => void;
+
+  /**
+   * Hook called after query execution to customize span attributes from response.
+   */
+  responseHook?: (span: Span, info: ResponseInfo) => void;
+}
