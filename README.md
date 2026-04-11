@@ -1,8 +1,5 @@
 # OpenTelemetry Bun.SQL Instrumentation
 
-[![NPM Published Version][npm-img]][npm-url]
-[![Apache License][license-image]][license-image]
-
 OpenTelemetry instrumentation for [Bun.SQL](https://bun.sh/docs/api/sql), the built-in database client in Bun supporting PostgreSQL, MySQL, and SQLite.
 
 ## Installation
