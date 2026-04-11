@@ -100,7 +100,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
 
   override getConfig(): BunSqlInstrumentationConfig {
     return {
-      sanitizeNonParameterizedQueries: true,
+      maskStatement: true,
       ...super.getConfig(),
     };
   }
@@ -372,11 +372,11 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       }
 
       const operationName = extractOperationName(query);
-      // Sanitize non-parameterized queries per OTel semconv
+      // Mask non-parameterized queries per OTel semconv
       const displayQuery =
-        config.sanitizeNonParameterizedQueries === false
+        config.maskStatement === false
           ? query
-          : (config.sanitizationHook ?? sanitizeQuery)(query);
+          : (config.maskStatementHook ?? sanitizeQuery)(query);
       const querySummary = buildQuerySummary(operationName, query);
 
       const attributes = buildCtxAttributes(ctx);

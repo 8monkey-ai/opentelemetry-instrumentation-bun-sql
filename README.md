@@ -87,8 +87,8 @@ Span names follow the OTel convention priority:
 | `requireParentSpan` | `boolean` | `false` | Only create spans when a parent span exists in context |
 | `enhancedDatabaseReporting` | `boolean` | `false` | Include query parameters (`db.query.parameter.<n>`) and result data in spans |
 | `ignoreConnectionSpans` | `boolean` | `false` | Suppress spans for `CLOSE` and `RESERVE` operations |
-| `sanitizeNonParameterizedQueries` | `boolean` | `true` | Replace literal values with `?` in non-parameterized queries (`sql.unsafe()`) |
-| `sanitizationHook` | `(query: string) => string` | Built-in sanitizer | Custom sanitization function for non-parameterized queries |
+| `maskStatement` | `boolean` | `true` | Replace literal values with `?` in non-parameterized queries (`sql.unsafe()`) |
+| `maskStatementHook` | `(query: string) => string` | Built-in masker | Custom masking function for non-parameterized queries |
 | `addSqlCommenterComment` | `boolean` | `false` | Append SQL commenter traceparent comments to queries |
 | `requestHook` | `(span, info) => void` | - | Called before query execution to customize span attributes |
 | `responseHook` | `(span, info) => void` | - | Called after query execution with response metadata |
@@ -122,7 +122,7 @@ new BunSqlInstrumentation({
 |---|---|
 | Tagged template | Parameterized: `SELECT * FROM users WHERE id = $1` |
 | `sql.unsafe()` | Sanitized by default: `SELECT * FROM users WHERE name = ?` |
-| `sql.unsafe()` with `sanitizeNonParameterizedQueries: false` | Raw text preserved |
+| `sql.unsafe()` with `maskStatement: false` | Raw text preserved |
 
 ## License
 

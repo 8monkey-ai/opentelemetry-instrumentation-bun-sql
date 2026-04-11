@@ -334,8 +334,8 @@ describe("BunSqlInstrumentation config options", () => {
     expect(selectSpans[0]!.attributes["db.query.parameter.0"]).toBe("hello");
   });
 
-  test("sanitizeNonParameterizedQueries: false preserves raw text", async () => {
-    enableInstrumentation({ sanitizeNonParameterizedQueries: false });
+  test("maskStatement: false preserves raw text", async () => {
+    enableInstrumentation({ maskStatement: false });
 
     const sql = createSql() as {
       unsafe: (q: string) => Promise<unknown>;
@@ -383,9 +383,9 @@ describe("BunSqlInstrumentation config options", () => {
     expect(capturedRowCount).toBe(1);
   });
 
-  test("sanitizationHook customizes sanitization", async () => {
+  test("maskStatementHook customizes masking", async () => {
     enableInstrumentation({
-      sanitizationHook: (query) => query.replaceAll("secret", "[REDACTED]"),
+      maskStatementHook: (query) => query.replaceAll("secret", "[REDACTED]"),
     });
 
     const sql = createSql() as {

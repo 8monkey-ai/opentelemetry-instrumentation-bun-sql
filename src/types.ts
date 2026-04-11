@@ -41,19 +41,19 @@ export interface BunSqlInstrumentationConfig extends InstrumentationConfig {
   ignoreConnectionSpans?: boolean;
 
   /**
-   * Sanitize non-parameterized queries (sql.unsafe(), sql.file()) by
+   * Mask non-parameterized queries (sql.unsafe(), sql.file()) by
    * replacing literal values with `?` placeholders.
-   * Per OTel semconv, non-parameterized queries SHOULD be sanitized by default.
+   * Per OTel semconv, non-parameterized queries SHOULD be masked by default.
    * @default true
    */
-  sanitizeNonParameterizedQueries?: boolean;
+  maskStatement?: boolean;
 
   /**
-   * Custom sanitization function for non-parameterized queries.
-   * Only used when `sanitizeNonParameterizedQueries` is true.
+   * Custom masking function for non-parameterized queries.
+   * Only used when `maskStatement` is true.
    * @default Replaces string/numeric/boolean literals with `?`
    */
-  sanitizationHook?: (query: string) => string;
+  maskStatementHook?: (query: string) => string;
 
   /**
    * Add SQL commenter traceparent comments to queries.
