@@ -1,7 +1,7 @@
 import type { InstrumentationConfig } from "@opentelemetry/instrumentation";
 import type { Span } from "@opentelemetry/api";
 
-export interface QueryInfo {
+export interface BunSqlRequestHookInformation {
   /** The SQL query text (parameterized for tagged templates, raw for unsafe). */
   query: string;
   /** The SQL operation name (SELECT, INSERT, etc.). */
@@ -10,7 +10,7 @@ export interface QueryInfo {
   params?: unknown[];
 }
 
-export interface ResponseInfo {
+export interface BunSqlResponseHookInformation {
   /** Number of rows returned. */
   rowCount?: number;
   /** The command type (SELECT, INSERT, etc.). */
@@ -18,6 +18,16 @@ export interface ResponseInfo {
   /** Raw query result data. */
   data?: unknown;
 }
+
+export type BunSqlInstrumentationExecutionRequestHook = (
+  span: Span,
+  info: BunSqlRequestHookInformation,
+) => void;
+
+export type BunSqlInstrumentationExecutionResponseHook = (
+  span: Span,
+  info: BunSqlResponseHookInformation,
+) => void;
 
 export interface BunSqlInstrumentationConfig extends InstrumentationConfig {
   /**
@@ -65,10 +75,10 @@ export interface BunSqlInstrumentationConfig extends InstrumentationConfig {
   /**
    * Hook called before query execution to customize span attributes.
    */
-  requestHook?: (span: Span, info: QueryInfo) => void;
+  requestHook?: BunSqlInstrumentationExecutionRequestHook;
 
   /**
    * Hook called after query execution to customize span attributes from response.
    */
-  responseHook?: (span: Span, info: ResponseInfo) => void;
+  responseHook?: BunSqlInstrumentationExecutionResponseHook;
 }

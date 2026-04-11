@@ -96,11 +96,16 @@ Span names follow the OTel convention priority:
 ### Example with hooks
 
 ```typescript
+import type {
+  BunSqlRequestHookInformation,
+  BunSqlResponseHookInformation,
+} from "@8monkey/opentelemetry-instrumentation-bun-sql";
+
 new BunSqlInstrumentation({
-  requestHook: (span, info) => {
+  requestHook: (span, info: BunSqlRequestHookInformation) => {
     span.setAttribute("custom.query", info.query);
   },
-  responseHook: (span, info) => {
+  responseHook: (span, info: BunSqlResponseHookInformation) => {
     if (info.rowCount !== undefined) {
       span.setAttribute("custom.row_count", info.rowCount);
     }
