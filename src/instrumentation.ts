@@ -242,21 +242,22 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     }
 
     return this._execQuery(queryText, operationName, params, ctx, config, (span) => {
+      let templateStrings = strings;
+
       if (config.addSqlCommenterComment === true) {
-        const commentedQuery = addSqlCommenterComment(span, queryText);
-        const suffix = commentedQuery.slice(queryText.length);
-        const syntheticStrings = [...strings];
-        const raw = [...strings.raw];
-        syntheticStrings[syntheticStrings.length - 1] += suffix;
-        raw[raw.length - 1] += suffix;
-        Object.defineProperty(syntheticStrings, "raw", { value: raw });
-        return instance(
+        const suffix = addSqlCommenterComment(span, queryText).slice(queryText.length);
+        if (suffix !== "") {
+          const last = strings.length - 1;
+          const cooked = [...strings];
+          const raw = [...strings.raw];
+          cooked[last] += suffix;
+          raw[last] += suffix;
           // oxlint-disable-next-line no-unsafe-type-assertion
-          syntheticStrings as unknown as TemplateStringsArray,
-          ...params,
-        );
+          templateStrings = Object.assign(cooked, { raw }) as unknown as TemplateStringsArray;
+        }
       }
-      return instance(...([strings, ...params] as [TemplateStringsArray, ...unknown[]]));
+
+      return instance(templateStrings, ...params);
     });
   }
 
