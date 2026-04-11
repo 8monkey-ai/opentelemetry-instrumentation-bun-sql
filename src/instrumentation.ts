@@ -210,10 +210,12 @@ export class BunSqlInstrumentation extends InstrumentationBase {
             return (id: string, callback: (tx: SQL) => Promise<unknown>): Promise<unknown> =>
               target.beginDistributed(id, (tx: SQL) => callback(this._wrapInstance(tx)));
           case "reserve":
-            return this._wrapReserve(target.reserve.bind(target), ctx);
+            return this._wrapConnOp("RESERVE", target.reserve.bind(target), ctx, (r) =>
+              this._wrapInstance(r),
+            );
           case "close":
           case "end":
-            return this._wrapClose(target.close.bind(target), ctx);
+            return this._wrapConnOp("CLOSE", target.close.bind(target), ctx, (r) => r);
           default: {
             const value: unknown = Reflect.get(target, prop, receiver);
             if (typeof value === "function") {
@@ -313,64 +315,31 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     return this._wrapQueryResult(result, span, config);
   }
 
-  private _wrapReserve(original: () => Promise<SQL>, ctx: InstanceContext): () => Promise<SQL> {
-    return (): Promise<SQL> => {
+  private _wrapConnOp<TIn, TOut>(
+    op: string,
+    original: () => Promise<TIn>,
+    ctx: InstanceContext,
+    onSuccess: (r: TIn) => TOut,
+  ): () => Promise<TOut> {
+    return (): Promise<TOut> => {
       const config = this.getConfig();
       if (
         config.ignoreConnectionSpans === true ||
         (config.requireParentSpan === true && trace.getSpan(context.active()) === undefined)
       ) {
-        return original().then((r) => this._wrapInstance(r));
+        return original().then(onSuccess);
       }
       const span = this.tracer.startSpan(
-        buildSpanName({
-          operationName: "RESERVE",
-          namespace: ctx.namespace,
-          systemName: ctx.systemName,
-        }),
+        buildSpanName({ operationName: op, namespace: ctx.namespace, systemName: ctx.systemName }),
         {
           kind: SpanKind.CLIENT,
-          attributes: buildCtxAttributes(ctx, { [ATTR_DB_OPERATION_NAME]: "RESERVE" }),
+          attributes: buildCtxAttributes(ctx, { [ATTR_DB_OPERATION_NAME]: op }),
         },
       );
       return original().then(
-        (r) => {
+        (r: TIn): TOut => {
           span.end();
-          return this._wrapInstance(r);
-        },
-        (e: Error) => {
-          this._recordError(span, e);
-          span.end();
-          throw e;
-        },
-      );
-    };
-  }
-
-  private _wrapClose(original: () => Promise<void>, ctx: InstanceContext): () => Promise<void> {
-    return (): Promise<void> => {
-      const config = this.getConfig();
-      if (
-        config.ignoreConnectionSpans === true ||
-        (config.requireParentSpan === true && trace.getSpan(context.active()) === undefined)
-      ) {
-        return original();
-      }
-      const span = this.tracer.startSpan(
-        buildSpanName({
-          operationName: "CLOSE",
-          namespace: ctx.namespace,
-          systemName: ctx.systemName,
-        }),
-        {
-          kind: SpanKind.CLIENT,
-          attributes: buildCtxAttributes(ctx, { [ATTR_DB_OPERATION_NAME]: "CLOSE" }),
-        },
-      );
-      return original().then(
-        // oxlint-disable-next-line promise/always-return
-        () => {
-          span.end();
+          return onSuccess(r);
         },
         (e: Error) => {
           this._recordError(span, e);

@@ -115,4 +115,3 @@ new BunSqlInstrumentation({
 | Tagged template                            | Parameterized: `SELECT * FROM users WHERE id = $1`         |
 | `sql.unsafe()`                             | Sanitized by default: `SELECT * FROM users WHERE name = ?` |
 | `sql.unsafe()` with `maskStatement: false` | Raw text preserved                                         |
-
