@@ -51,11 +51,6 @@ interface InstanceContext {
   serverPort: number | undefined;
 }
 
-interface BunModule {
-  SQL: unknown;
-  sql: unknown;
-}
-
 const CHAINING_METHODS = new Set(["values", "raw", "simple", "execute"]);
 
 function isRecord(val: unknown): val is Record<string, unknown> {
@@ -190,9 +185,9 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     }
   }
 
-  private _getBunModule(): BunModule | undefined {
+  private _getBunModule(): { SQL: unknown; sql: SQL | null | undefined } | undefined {
     try {
-      return require("bun") as unknown as BunModule;
+      return require("bun") as unknown as { SQL: unknown; sql: SQL | null | undefined };
     } catch {
       return undefined;
     }
