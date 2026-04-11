@@ -93,7 +93,7 @@ describe("BunSqlInstrumentation", () => {
       await sql`INSERT INTO rows_test(val) VALUES(${"a"})`;
       await sql`INSERT INTO rows_test(val) VALUES(${"b"})`;
       await sql`INSERT INTO rows_test(val) VALUES(${"c"})`;
-      const result = await sql`SELECT * FROM rows_test`;
+      const result = await sql<unknown[]>`SELECT * FROM rows_test`;
       await sql.close();
 
       expect(result.length).toBe(3);
@@ -105,7 +105,7 @@ describe("BunSqlInstrumentation", () => {
 
     test("supports .values() chaining", async () => {
       const sql = createSql();
-      const result = await sql`SELECT 1 as a, 2 as b`.values();
+      const result = await sql<unknown[]>`SELECT 1 as a, 2 as b`.values();
       await sql.close();
 
       expect(result[0]).toEqual([1, 2]);
