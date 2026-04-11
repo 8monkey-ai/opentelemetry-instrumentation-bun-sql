@@ -251,6 +251,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
           default: {
             const value: unknown = Reflect.get(target, prop, receiver);
             if (typeof value === "function") {
+              // oxlint-disable-next-line no-unsafe-return
               return value.bind(target);
             }
             return value;
