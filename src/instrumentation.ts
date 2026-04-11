@@ -225,8 +225,6 @@ export class BunSqlInstrumentation extends InstrumentationBase {
         switch (prop) {
           case "unsafe":
             return this._wrapUnsafe(target.unsafe.bind(target), ctx);
-          case "file":
-            return this._wrapFile(target.file.bind(target), ctx);
           case "begin":
           case "transaction":
             return (callback: (tx: SQL) => Promise<unknown>): Promise<unknown> =>
@@ -270,71 +268,22 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     const config = this.getConfig();
     const strings = args[0] as TemplateStringsArray;
     const params = args.slice(1);
-
     const queryText = buildParameterizedQuery(strings);
     const operationName = extractOperationName(queryText);
 
-    if (
-      config.requireParentSpan === true &&
-      trace.getSpan(context.active()) === undefined
-    ) {
+    if (config.requireParentSpan === true && trace.getSpan(context.active()) === undefined) {
       return instance(strings, ...params);
     }
 
-    const attributes = buildCtxAttributes(ctx);
-    if (operationName !== undefined)
-      attributes[ATTR_DB_OPERATION_NAME] = operationName;
-    attributes[ATTR_DB_QUERY_TEXT] = queryText;
-
-    if (config.enhancedDatabaseReporting === true) {
-      for (let i = 0; i < params.length; i++) {
-        attributes[`${ATTR_DB_QUERY_PARAMETER_PREFIX}.${i}`] = String(
-          params[i],
-        );
+    return this._execQuery(queryText, operationName, params, ctx, config, (span) => {
+      if (config.addSqlCommenterComment === true) {
+        const commentedQuery = addSqlCommenterComment(span, queryText);
+        const syntheticStrings = [commentedQuery] as unknown as TemplateStringsArray;
+        Object.defineProperty(syntheticStrings, "raw", { value: [commentedQuery] });
+        return instance(syntheticStrings);
       }
-    }
-
-    const spanName = buildSpanName({
-      operationName,
-      namespace: ctx.namespace,
-      systemName: ctx.systemName,
+      return instance(...([strings, ...params] as [TemplateStringsArray, ...unknown[]]));
     });
-
-    const span = this.tracer.startSpan(spanName, {
-      kind: SpanKind.CLIENT,
-      attributes,
-    });
-
-    this._callRequestHook(span, {
-      query: queryText,
-      operation: operationName,
-      params: config.enhancedDatabaseReporting === true ? params : undefined,
-    }, config);
-
-    let queryArgs: unknown[];
-    if (config.addSqlCommenterComment === true) {
-      const commentedQuery = addSqlCommenterComment(span, queryText);
-      // Reconstruct a synthetic TemplateStringsArray
-      const syntheticStrings = [
-        commentedQuery,
-      ] as unknown as TemplateStringsArray;
-      Object.defineProperty(syntheticStrings, "raw", {
-        value: [commentedQuery],
-      });
-      queryArgs = [syntheticStrings];
-    } else {
-      queryArgs = [strings, ...params];
-    }
-
-    const queryResult = context.with(
-      trace.setSpan(context.active(), span),
-      () =>
-        instance(
-          ...(queryArgs as [TemplateStringsArray, ...unknown[]]),
-        ),
-    );
-
-    return this._wrapQueryResult(queryResult, span, config);
   }
 
   private _wrapUnsafe(
@@ -344,100 +293,56 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     return (query: string, params?: unknown[]): unknown => {
       const config = this.getConfig();
 
-      if (
-        config.requireParentSpan === true &&
-        trace.getSpan(context.active()) === undefined
-      ) {
+      if (config.requireParentSpan === true && trace.getSpan(context.active()) === undefined) {
         return original(query, params);
       }
 
       const operationName = extractOperationName(query);
       // Mask non-parameterized queries per OTel semconv
-      const displayQuery =
-        config.maskStatement === false
-          ? query
-          : (config.maskStatementHook ?? sanitizeQuery)(query);
+      const queryText = config.maskStatement === false
+        ? query
+        : (config.maskStatementHook ?? sanitizeQuery)(query);
 
-      const attributes = buildCtxAttributes(ctx);
-      if (operationName !== undefined)
-        attributes[ATTR_DB_OPERATION_NAME] = operationName;
-      attributes[ATTR_DB_QUERY_TEXT] = displayQuery;
-
-      if (config.enhancedDatabaseReporting === true && params !== undefined) {
-        for (let i = 0; i < params.length; i++) {
-          attributes[`${ATTR_DB_QUERY_PARAMETER_PREFIX}.${i}`] = String(
-            params[i],
-          );
-        }
-      }
-
-      const spanName = buildSpanName({
-        operationName,
-        namespace: ctx.namespace,
-        systemName: ctx.systemName,
-      });
-
-      const span = this.tracer.startSpan(spanName, {
-        kind: SpanKind.CLIENT,
-        attributes,
-      });
-
-      this._callRequestHook(span, {
-        query: displayQuery,
-        operation: operationName,
-        params: config.enhancedDatabaseReporting === true ? params : undefined,
-      }, config);
-
-      let finalQuery = query;
-      if (config.addSqlCommenterComment === true) {
-        finalQuery = addSqlCommenterComment(span, query);
-      }
-
-      const result = context.with(
-        trace.setSpan(context.active(), span),
-        () => original(finalQuery, params),
+      return this._execQuery(queryText, operationName, params, ctx, config, (span) =>
+        original(
+          config.addSqlCommenterComment === true ? addSqlCommenterComment(span, query) : query,
+          params,
+        ),
       );
-
-      return this._wrapQueryResult(result, span, config);
     };
   }
 
-  private _wrapFile(
-    original: (path: string, params?: unknown[]) => unknown,
+  private _execQuery(
+    queryText: string,
+    operationName: string | undefined,
+    params: unknown[] | undefined,
     ctx: InstanceContext,
-  ): (path: string, params?: unknown[]) => unknown {
-    return (path: string, params?: unknown[]): unknown => {
-      const config = this.getConfig();
+    config: BunSqlInstrumentationConfig,
+    execute: (span: Span) => unknown,
+  ): unknown {
+    const attributes = buildCtxAttributes(ctx);
+    if (operationName !== undefined) attributes[ATTR_DB_OPERATION_NAME] = operationName;
+    attributes[ATTR_DB_QUERY_TEXT] = queryText;
 
-      if (
-        config.requireParentSpan === true &&
-        trace.getSpan(context.active()) === undefined
-      ) {
-        return original(path, params);
+    if (config.enhancedDatabaseReporting === true && params !== undefined) {
+      for (let i = 0; i < params.length; i++) {
+        attributes[`${ATTR_DB_QUERY_PARAMETER_PREFIX}.${i}`] = String(params[i]);
       }
+    }
 
-      const attributes = buildCtxAttributes(ctx, {
-        [ATTR_DB_QUERY_TEXT]: `FILE: ${path}`,
-      });
+    const span = this.tracer.startSpan(
+      buildSpanName({ operationName, namespace: ctx.namespace, systemName: ctx.systemName }),
+      { kind: SpanKind.CLIENT, attributes },
+    );
 
-      const spanName = buildSpanName({
-        operationName: "FILE",
-        namespace: ctx.namespace,
-        systemName: ctx.systemName,
-      });
+    this._callRequestHook(span, {
+      query: queryText,
+      operation: operationName,
+      params: config.enhancedDatabaseReporting === true ? params : undefined,
+    }, config);
 
-      const span = this.tracer.startSpan(spanName, {
-        kind: SpanKind.CLIENT,
-        attributes,
-      });
-
-      const result = context.with(
-        trace.setSpan(context.active(), span),
-        () => original(path, params),
-      );
-
-      return this._wrapQueryResult(result, span, config);
-    };
+    const result = context.with(trace.setSpan(context.active(), span), () => execute(span));
+    return this._wrapQueryResult(result, span, config);
   }
 
   private _wrapReserve(
@@ -446,41 +351,20 @@ export class BunSqlInstrumentation extends InstrumentationBase {
   ): () => Promise<SQL> {
     return (): Promise<SQL> => {
       const config = this.getConfig();
-
-      if (config.ignoreConnectionSpans === true) {
-        return original().then((reserved) => this._wrapInstance(reserved));
-      }
-
       if (
-        config.requireParentSpan === true &&
-        trace.getSpan(context.active()) === undefined
+        config.ignoreConnectionSpans === true ||
+        (config.requireParentSpan === true &&
+          trace.getSpan(context.active()) === undefined)
       ) {
-        return original().then((reserved) => this._wrapInstance(reserved));
+        return original().then((r) => this._wrapInstance(r));
       }
-
-      const spanName = buildSpanName({
-        operationName: "RESERVE",
-        namespace: ctx.namespace,
-        systemName: ctx.systemName,
-      });
-
-      const span = this.tracer.startSpan(spanName, {
-        kind: SpanKind.CLIENT,
-        attributes: buildCtxAttributes(ctx, {
-          [ATTR_DB_OPERATION_NAME]: "RESERVE",
-        }),
-      });
-
+      const span = this.tracer.startSpan(
+        buildSpanName({ operationName: "RESERVE", namespace: ctx.namespace, systemName: ctx.systemName }),
+        { kind: SpanKind.CLIENT, attributes: buildCtxAttributes(ctx, { [ATTR_DB_OPERATION_NAME]: "RESERVE" }) },
+      );
       return original().then(
-        (reserved) => {
-          span.end();
-          return this._wrapInstance(reserved);
-        },
-        (error: Error) => {
-          this._recordError(span, error);
-          span.end();
-          throw error;
-        },
+        (r) => { span.end(); return this._wrapInstance(r); },
+        (e: Error) => { this._recordError(span, e); span.end(); throw e; },
       );
     };
   }
@@ -491,41 +375,20 @@ export class BunSqlInstrumentation extends InstrumentationBase {
   ): () => Promise<void> {
     return (): Promise<void> => {
       const config = this.getConfig();
-
-      if (config.ignoreConnectionSpans === true) {
-        return original();
-      }
-
       if (
-        config.requireParentSpan === true &&
-        trace.getSpan(context.active()) === undefined
+        config.ignoreConnectionSpans === true ||
+        (config.requireParentSpan === true &&
+          trace.getSpan(context.active()) === undefined)
       ) {
         return original();
       }
-
-      const spanName = buildSpanName({
-        operationName: "CLOSE",
-        namespace: ctx.namespace,
-        systemName: ctx.systemName,
-      });
-
-      const span = this.tracer.startSpan(spanName, {
-        kind: SpanKind.CLIENT,
-        attributes: buildCtxAttributes(ctx, {
-          [ATTR_DB_OPERATION_NAME]: "CLOSE",
-        }),
-      });
-
+      const span = this.tracer.startSpan(
+        buildSpanName({ operationName: "CLOSE", namespace: ctx.namespace, systemName: ctx.systemName }),
+        { kind: SpanKind.CLIENT, attributes: buildCtxAttributes(ctx, { [ATTR_DB_OPERATION_NAME]: "CLOSE" }) },
+      );
       return original().then(
-        (result) => {
-          span.end();
-          return result;
-        },
-        (error: Error) => {
-          this._recordError(span, error);
-          span.end();
-          throw error;
-        },
+        () => span.end(),
+        (e: Error) => { this._recordError(span, e); span.end(); throw e; },
       );
     };
   }
