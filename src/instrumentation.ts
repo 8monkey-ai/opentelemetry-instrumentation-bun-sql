@@ -120,11 +120,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
 
       // Also wrap the default `sql` singleton if present
       const sqlVal = bunModule.sql;
-      if (
-        sqlVal !== undefined &&
-        sqlVal !== null &&
-        (!isRecord(sqlVal) || Reflect.get(sqlVal, WRAPPED) !== true)
-      ) {
+      if (sqlVal !== undefined && sqlVal !== null && Reflect.get(sqlVal, WRAPPED) !== true) {
         this._originalSqlSingleton = sqlVal;
         bunModule.sql = this._wrapInstance(sqlVal);
       }
@@ -441,15 +437,15 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     data: unknown,
     config: BunSqlInstrumentationConfig,
   ): void {
-    if (isRecord(data) && typeof data["count"] === "number") {
-      span.setAttribute(ATTR_DB_RESPONSE_RETURNED_ROWS, data["count"]);
-    }
+    const record = isRecord(data) ? data : null;
+    const rowCount =
+        record !== null && typeof record["count"] === "number" ? record["count"] : undefined;
+    if (rowCount !== undefined) span.setAttribute(ATTR_DB_RESPONSE_RETURNED_ROWS, rowCount);
 
     if (config.responseHook !== undefined) {
-      const rowCount =
-        isRecord(data) && typeof data["count"] === "number" ? data["count"] : undefined;
       const command =
-        isRecord(data) && typeof data["command"] === "string" ? data["command"] : undefined;
+        record !== null && typeof record["command"] === "string" ? record["command"] : undefined;
+
       safeExecuteInTheMiddle(
         () => {
           config.responseHook!(span, {
