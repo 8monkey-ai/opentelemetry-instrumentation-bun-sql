@@ -91,10 +91,10 @@ export class BunSqlInstrumentation extends InstrumentationBase {
   override enable(): void {
     if (this._patched) return;
 
-    try {
-      const bunModule = this._getBunModule();
-      if (bunModule === undefined) return;
+    const bunModule = this._getBunModule();
+    if (bunModule === undefined) return;
 
+    try {
       if (bunModule.SQL !== undefined && bunModule.SQL !== null) {
         // oxlint-disable-next-line no-unsafe-type-assertion
         const OrigSQL = bunModule.SQL as new (...args: unknown[]) => SQL;
@@ -132,23 +132,10 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       this._patched = true;
       this._diag.debug("Bun.SQL instrumentation enabled");
     } catch (e) {
-      try {
-        const bunModule = this._getBunModule();
-        if (bunModule !== undefined) {
-          if (this._originalSQL !== null) {
-            bunModule.SQL = this._originalSQL;
-          }
-          if (this._originalSqlSingleton !== null) {
-            bunModule.sql = this._originalSqlSingleton;
-          }
-        }
-      } catch {
-        // ignore rollback failures
-      } finally {
-        this._originalSQL = null;
-        this._originalSqlSingleton = null;
-        this._patched = false;
-      }
+      if (this._originalSQL !== null) bunModule.SQL = this._originalSQL;
+      if (this._originalSqlSingleton !== null) bunModule.sql = this._originalSqlSingleton;
+      this._originalSQL = this._originalSqlSingleton = null;
+      this._patched = false;
       this._diag.error("Failed to enable Bun.SQL instrumentation", e);
     }
   }
