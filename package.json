@@ -1,6 +1,6 @@
 {
   "name": "@8monkey/opentelemetry-instrumentation-bun-sql",
-  "version": "0.1.0-rc0",
+  "version": "0.2.0",
   "description": "OpenTelemetry instrumentation for `Bun.SQL` database client for PostgreSQL / MySQL / SQLite",
   "keywords": [
     "bun",
