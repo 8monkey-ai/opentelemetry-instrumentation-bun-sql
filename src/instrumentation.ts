@@ -1,4 +1,4 @@
-import { context, type Span, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import { context, type Histogram, type Span, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import { InstrumentationBase, safeExecuteInTheMiddle } from "@opentelemetry/instrumentation";
 import {
   ATTR_DB_NAMESPACE,
@@ -66,6 +66,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
   declare private _originalSQL: (new (...args: unknown[]) => SQL) | null;
   declare private _originalSqlSingleton: SQL | null;
   declare private _patched: boolean;
+  declare private _histogram: Histogram | null;
 
   constructor(config?: BunSqlInstrumentationConfig) {
     super(INSTRUMENTATION_NAME, VERSION, config ?? {});
@@ -73,6 +74,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     this._originalSQL ??= null;
     this._originalSqlSingleton ??= null;
     this._patched ??= false;
+    this._histogram ??= null;
   }
 
   override getConfig(): BunSqlInstrumentationConfig {
@@ -152,6 +154,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
         this._originalSqlSingleton = null;
       }
 
+      this._histogram = null;
       this._patched = false;
       this._diag.debug("Bun.SQL instrumentation disabled");
     } catch (e) {
@@ -304,6 +307,11 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       }
     }
 
+    const startTime = performance.now();
+    const recordDuration = (): void => {
+      this._recordOperationDuration(startTime, ctx, operationName);
+    };
+
     const span = this.tracer.startSpan(
       buildSpanName({ operationName, namespace: ctx.namespace, systemName: ctx.systemName }),
       { kind: SpanKind.CLIENT, attributes },
@@ -321,10 +329,11 @@ export class BunSqlInstrumentation extends InstrumentationBase {
 
     try {
       const result = context.with(trace.setSpan(context.active(), span), () => execute(span));
-      return this._wrapQueryResult(result, span, config);
+      return this._wrapQueryResult(result, span, config, recordDuration);
     } catch (error) {
       this._recordError(span, error instanceof Error ? error : new Error(String(error)));
       span.end();
+      recordDuration();
       throw error;
     }
   }
@@ -343,6 +352,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       ) {
         return original().then(onSuccess);
       }
+      const startTime = performance.now();
       const span = this.tracer.startSpan(
         buildSpanName({ operationName: op, namespace: ctx.namespace, systemName: ctx.systemName }),
         {
@@ -354,17 +364,20 @@ export class BunSqlInstrumentation extends InstrumentationBase {
         return original().then(
           (r: TIn): TOut => {
             span.end();
+            this._recordOperationDuration(startTime, ctx, op);
             return onSuccess(r);
           },
           (e: Error) => {
             this._recordError(span, e);
             span.end();
+            this._recordOperationDuration(startTime, ctx, op);
             throw e;
           },
         );
       } catch (e) {
         this._recordError(span, e instanceof Error ? e : new Error(String(e)));
         span.end();
+        this._recordOperationDuration(startTime, ctx, op);
         throw e;
       }
     };
@@ -380,9 +393,11 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     queryResult: unknown,
     span: Span,
     config: BunSqlInstrumentationConfig,
+    onEnd: () => void,
   ): unknown {
     if (typeof queryResult !== "object" || queryResult === null || !("then" in queryResult)) {
       span.end();
+      onEnd();
       return queryResult;
     }
 
@@ -400,12 +415,13 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       origThen.call(
         resultObj,
         (data: unknown) => {
-          this._handleQuerySuccess(span, data, config);
+          this._handleQuerySuccess(span, data, config, onEnd);
           return onFulfilled === undefined ? data : onFulfilled(data);
         },
         (error: unknown) => {
           this._recordError(span, error instanceof Error ? error : new Error(String(error)));
           span.end();
+          onEnd();
           if (onRejected !== undefined) return onRejected(error);
           throw error;
         },
@@ -421,7 +437,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
           if (typeof value === "function") {
             return (...args: unknown[]): unknown => {
               const chainResult: unknown = value.apply(target, args);
-              return this._wrapQueryResult(chainResult, span, config);
+              return this._wrapQueryResult(chainResult, span, config, onEnd);
             };
           }
           return value;
@@ -436,6 +452,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     span: Span,
     data: unknown,
     config: BunSqlInstrumentationConfig,
+    onEnd: () => void,
   ): void {
     const record = isRecord(data) ? data : null;
     const rowCount =
@@ -462,6 +479,26 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     }
 
     span.end();
+    onEnd();
+  }
+
+  private _recordOperationDuration(
+    startTime: number,
+    ctx: InstanceContext,
+    operationName: string | undefined,
+  ): void {
+    this._histogram ??= this.meter.createHistogram("db.client.operation.duration", {
+      unit: "s",
+      description: "Duration of database client operations",
+    });
+    const durationS = (performance.now() - startTime) / 1000;
+    const attributes: Record<string, string | number> = {
+      [ATTR_DB_SYSTEM_NAME]: ctx.systemName,
+    };
+    if (operationName !== undefined) attributes[ATTR_DB_OPERATION_NAME] = operationName;
+    if (ctx.serverAddress !== undefined) attributes[ATTR_SERVER_ADDRESS] = ctx.serverAddress;
+    if (ctx.serverPort !== undefined) attributes[ATTR_SERVER_PORT] = ctx.serverPort;
+    this._histogram.record(durationS, attributes);
   }
 
   private _recordError(span: Span, error: Error): void {

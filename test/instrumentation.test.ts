@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import {
+  AggregationTemporality,
+  InMemoryMetricExporter,
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics";
 import { InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import {
@@ -339,5 +345,187 @@ describe("BunSqlInstrumentation config options", () => {
 
     const selectSpans = getQuerySpans("SELECT");
     expect(selectSpans[0]!.attributes[ATTR_DB_QUERY_TEXT]).toContain("[REDACTED]");
+  });
+});
+
+describe("db.client.operation.duration metric", () => {
+  let metricExporter: InMemoryMetricExporter;
+  let metricReader: PeriodicExportingMetricReader;
+  let meterProvider: MeterProvider;
+  let metricInstrumentation: BunSqlInstrumentation;
+
+  function enableMetricInstrumentation(config?: BunSqlInstrumentationConfig) {
+    metricExporter = new InMemoryMetricExporter(AggregationTemporality.CUMULATIVE);
+    metricReader = new PeriodicExportingMetricReader({
+      exporter: metricExporter,
+      exportIntervalMillis: 60_000,
+    });
+    meterProvider = new MeterProvider({ readers: [metricReader] });
+
+    metricInstrumentation = new BunSqlInstrumentation(config);
+    metricInstrumentation.setTracerProvider(provider);
+    metricInstrumentation.setMeterProvider(meterProvider);
+    metricInstrumentation.enable();
+  }
+
+  function createMetricSql() {
+    // oxlint-disable-next-line no-unsafe-type-assertion
+    const { SQL: PatchedSQL } = require("bun") as { SQL: typeof SQL };
+    return new PatchedSQL({ adapter: "sqlite" });
+  }
+
+  async function getHistogramDataPoints() {
+    await metricReader.forceFlush();
+    const resourceMetrics = metricExporter.getMetrics();
+    for (const rm of resourceMetrics) {
+      for (const sm of rm.scopeMetrics) {
+        for (const metric of sm.metrics) {
+          if (metric.descriptor.name === "db.client.operation.duration") {
+            return metric.dataPoints;
+          }
+        }
+      }
+    }
+    return [];
+  }
+
+  afterEach(async () => {
+    metricInstrumentation.disable();
+    await metricReader.shutdown();
+    await meterProvider.shutdown();
+  });
+
+  test("records histogram for SELECT query", async () => {
+    enableMetricInstrumentation();
+    const sql = createMetricSql();
+    await sql`SELECT 1 as num`;
+    await sql.close();
+
+    const dataPoints = await getHistogramDataPoints();
+    // Should have data points for SELECT and CLOSE
+    const selectPoints = dataPoints.filter(
+      (dp) => dp.attributes[ATTR_DB_OPERATION_NAME] === "SELECT",
+    );
+    expect(selectPoints.length).toBe(1);
+
+    const dp = selectPoints[0]!;
+    expect(dp.attributes[ATTR_DB_SYSTEM_NAME]).toBe("sqlite");
+    expect(dp.attributes[ATTR_DB_OPERATION_NAME]).toBe("SELECT");
+    // Duration should be a positive number in seconds
+    expect(dp.value.sum).toBeGreaterThan(0);
+    expect(dp.value.count).toBe(1);
+  });
+
+  test("records histogram for unsafe query", async () => {
+    enableMetricInstrumentation();
+    const sql = createMetricSql();
+    await sql.unsafe("SELECT 1 as num");
+    await sql.close();
+
+    const dataPoints = await getHistogramDataPoints();
+    const selectPoints = dataPoints.filter(
+      (dp) => dp.attributes[ATTR_DB_OPERATION_NAME] === "SELECT",
+    );
+    expect(selectPoints.length).toBe(1);
+    expect(selectPoints[0]!.value.count).toBe(1);
+  });
+
+  test("does not include db.query.text in metric attributes", async () => {
+    enableMetricInstrumentation();
+    const sql = createMetricSql();
+    await sql`SELECT 1 as num`;
+    await sql.close();
+
+    const dataPoints = await getHistogramDataPoints();
+    for (const dp of dataPoints) {
+      expect(dp.attributes[ATTR_DB_QUERY_TEXT]).toBeUndefined();
+    }
+  });
+
+  test("records histogram for connection operations", async () => {
+    enableMetricInstrumentation();
+    const sql = createMetricSql();
+    await sql`SELECT 1`;
+    await sql.close();
+
+    const dataPoints = await getHistogramDataPoints();
+    const closePoints = dataPoints.filter(
+      (dp) => dp.attributes[ATTR_DB_OPERATION_NAME] === "CLOSE",
+    );
+    expect(closePoints.length).toBe(1);
+    expect(closePoints[0]!.attributes[ATTR_DB_SYSTEM_NAME]).toBe("sqlite");
+  });
+
+  test("records histogram for failed queries", async () => {
+    enableMetricInstrumentation();
+    const sql = createMetricSql();
+    try {
+      await sql`SELECT * FROM nonexistent_table_xyz`;
+    } catch {
+      // Expected
+    }
+    await sql.close();
+
+    const dataPoints = await getHistogramDataPoints();
+    const selectPoints = dataPoints.filter(
+      (dp) => dp.attributes[ATTR_DB_OPERATION_NAME] === "SELECT",
+    );
+    expect(selectPoints.length).toBe(1);
+    expect(selectPoints[0]!.value.count).toBe(1);
+  });
+
+  test("records duration in seconds", async () => {
+    enableMetricInstrumentation();
+    const sql = createMetricSql();
+    await sql`SELECT 1 as num`;
+    await sql.close();
+
+    const dataPoints = await getHistogramDataPoints();
+    const selectPoint = dataPoints.find(
+      (dp) => dp.attributes[ATTR_DB_OPERATION_NAME] === "SELECT",
+    );
+    expect(selectPoint).toBeDefined();
+    // Duration should be positive and reasonable (less than 10 seconds for a simple query)
+    // oxlint-disable-next-line no-unsafe-assignment
+    const durationSum = selectPoint!.value.sum;
+    expect(durationSum).toBeGreaterThan(0);
+    expect(durationSum).toBeLessThan(10);
+  });
+
+  test("records multiple operations as separate data points", async () => {
+    enableMetricInstrumentation();
+    const sql = createMetricSql();
+    await sql`CREATE TABLE metric_test(id INTEGER PRIMARY KEY, val TEXT)`;
+    await sql`INSERT INTO metric_test(val) VALUES(${"hello"})`;
+    await sql`SELECT * FROM metric_test`;
+    await sql.close();
+
+    const dataPoints = await getHistogramDataPoints();
+    const operations = dataPoints.map((dp) => dp.attributes[ATTR_DB_OPERATION_NAME]);
+    expect(operations).toContain("CREATE");
+    expect(operations).toContain("INSERT");
+    expect(operations).toContain("SELECT");
+    expect(operations).toContain("CLOSE");
+  });
+
+  test("histogram unit is seconds", async () => {
+    enableMetricInstrumentation();
+    const sql = createMetricSql();
+    await sql`SELECT 1`;
+    await sql.close();
+
+    await metricReader.forceFlush();
+    const resourceMetrics = metricExporter.getMetrics();
+    for (const rm of resourceMetrics) {
+      for (const sm of rm.scopeMetrics) {
+        for (const metric of sm.metrics) {
+          if (metric.descriptor.name === "db.client.operation.duration") {
+            expect(metric.descriptor.unit).toBe("s");
+            return;
+          }
+        }
+      }
+    }
+    throw new Error("db.client.operation.duration metric not found");
   });
 });
