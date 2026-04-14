@@ -68,6 +68,33 @@ Span names follow the OTel convention priority:
 3. `{db.namespace}` (e.g., `mydb`)
 4. `{db.system.name}` (e.g., `postgresql`)
 
+### Metrics
+
+This instrumentation emits the following metric per the [OTel DB metrics semantic conventions](https://opentelemetry.io/docs/specs/semconv/database/database-metrics/):
+
+#### `db.client.operation.duration`
+
+| Property    | Value                                              |
+| ----------- | -------------------------------------------------- |
+| Type        | Histogram                                          |
+| Unit        | `s` (seconds)                                      |
+| Description | Duration of database client operations             |
+| Buckets     | `0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10`   |
+
+Metric attributes:
+
+| Attribute                 | Requirement           | Description                                 |
+| ------------------------- | --------------------- | ------------------------------------------- |
+| `db.system.name`          | Required              | Database system identifier                  |
+| `db.operation.name`       | Conditionally Required | Database operation (e.g., `SELECT`)         |
+| `db.namespace`            | Conditionally Required | Database name or SQLite filename             |
+| `error.type`              | Conditionally Required | Error class name (only on failure)          |
+| `db.response.status_code` | Conditionally Required | Database error code (only on failure)       |
+| `server.address`          | Recommended           | Server hostname                             |
+| `server.port`             | Conditionally Required | Server port (when non-default)              |
+
+`db.query.text` is intentionally excluded from metric attributes to avoid high-cardinality issues and PII exposure.
+
 ## Configuration
 
 | Option                      | Type                        | Default         | Description                                                                                        |

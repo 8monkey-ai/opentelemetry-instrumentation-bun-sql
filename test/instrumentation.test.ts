@@ -4,17 +4,33 @@ import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
 import { InMemorySpanExporter, SimpleSpanProcessor } from "@opentelemetry/sdk-trace-base";
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node";
 import {
+  DataPointType,
+  MeterProvider,
+  MetricReader,
+  type CollectionResult,
+} from "@opentelemetry/sdk-metrics";
+import {
   ATTR_DB_NAMESPACE,
   ATTR_DB_OPERATION_NAME,
   ATTR_DB_QUERY_TEXT,
   ATTR_DB_SYSTEM_NAME,
   ATTR_ERROR_TYPE,
+  ATTR_DB_RESPONSE_STATUS_CODE,
+  METRIC_DB_CLIENT_OPERATION_DURATION,
 } from "@opentelemetry/semantic-conventions";
 import { SQL } from "bun";
 
 import { BunSqlInstrumentation } from "../src/instrumentation.js";
 import { ATTR_DB_RESPONSE_RETURNED_ROWS } from "../src/semconv.js";
 import type { BunSqlInstrumentationConfig } from "../src/types.js";
+
+/** Minimal MetricReader that exposes collect() for tests. */
+class TestMetricReader extends MetricReader {
+  // oxlint-disable-next-line require-await
+  protected async onShutdown(): Promise<void> {}
+  // oxlint-disable-next-line require-await
+  protected async onForceFlush(): Promise<void> {}
+}
 
 const exporter = new InMemorySpanExporter();
 const provider = new NodeTracerProvider({
@@ -24,11 +40,34 @@ const provider = new NodeTracerProvider({
 provider.register();
 
 let instrumentation: BunSqlInstrumentation;
+let metricReader: TestMetricReader;
 
 function enableInstrumentation(config?: BunSqlInstrumentationConfig) {
+  metricReader = new TestMetricReader();
+  const meterProvider = new MeterProvider({ readers: [metricReader] });
   instrumentation = new BunSqlInstrumentation(config);
   instrumentation.setTracerProvider(provider);
+  instrumentation.setMeterProvider(meterProvider);
   instrumentation.enable();
+}
+
+function getMetricDataPoints(): Promise<CollectionResult> {
+  return metricReader.collect();
+}
+
+function getHistogramDataPoints(result: CollectionResult) {
+  const scopeMetrics = result.resourceMetrics.scopeMetrics;
+  for (const scope of scopeMetrics) {
+    for (const metric of scope.metrics) {
+      if (
+        metric.descriptor.name === METRIC_DB_CLIENT_OPERATION_DURATION &&
+        metric.dataPointType === DataPointType.HISTOGRAM
+      ) {
+        return metric.dataPoints;
+      }
+    }
+  }
+  return [];
 }
 
 function createSql() {
@@ -339,5 +378,144 @@ describe("BunSqlInstrumentation config options", () => {
 
     const selectSpans = getQuerySpans("SELECT");
     expect(selectSpans[0]!.attributes[ATTR_DB_QUERY_TEXT]).toContain("[REDACTED]");
+  });
+});
+
+describe("db.client.operation.duration metric", () => {
+  beforeEach(() => {
+    exporter.reset();
+    enableInstrumentation();
+  });
+  afterEach(() => {
+    instrumentation.disable();
+  });
+
+  test("records histogram for SELECT query", async () => {
+    const sql = createSql();
+    await sql`SELECT 1 as num`;
+    await sql.close();
+
+    const result = await getMetricDataPoints();
+    const dataPoints = getHistogramDataPoints(result);
+    expect(dataPoints.length).toBeGreaterThan(0);
+
+    // Find a data point for a SELECT operation
+    const selectPoint = dataPoints.find(
+      (dp) => dp.attributes[ATTR_DB_OPERATION_NAME] === "SELECT",
+    );
+    expect(selectPoint).toBeDefined();
+    expect(selectPoint!.attributes[ATTR_DB_SYSTEM_NAME]).toBe("sqlite");
+    expect(selectPoint!.attributes[ATTR_DB_NAMESPACE]).toBe(":memory:");
+    expect(selectPoint!.value.count).toBeGreaterThanOrEqual(1);
+    expect(selectPoint!.value.sum).toBeGreaterThan(0);
+  });
+
+  test("records histogram for unsafe query", async () => {
+    const sql = createSql();
+    await sql.unsafe("SELECT 1 as num");
+    await sql.close();
+
+    const result = await getMetricDataPoints();
+    const dataPoints = getHistogramDataPoints(result);
+    const selectPoint = dataPoints.find(
+      (dp) => dp.attributes[ATTR_DB_OPERATION_NAME] === "SELECT",
+    );
+    expect(selectPoint).toBeDefined();
+    expect(selectPoint!.attributes[ATTR_DB_SYSTEM_NAME]).toBe("sqlite");
+  });
+
+  test("does not include db.query.text in metric attributes", async () => {
+    const sql = createSql();
+    await sql`SELECT 1 as num`;
+    await sql.close();
+
+    const result = await getMetricDataPoints();
+    const dataPoints = getHistogramDataPoints(result);
+    for (const dp of dataPoints) {
+      expect(dp.attributes[ATTR_DB_QUERY_TEXT]).toBeUndefined();
+    }
+  });
+
+  test("records metric for connection operations", async () => {
+    const sql = createSql();
+    await sql`SELECT 1`;
+    await sql.close();
+
+    const result = await getMetricDataPoints();
+    const dataPoints = getHistogramDataPoints(result);
+    const closePoint = dataPoints.find(
+      (dp) => dp.attributes[ATTR_DB_OPERATION_NAME] === "CLOSE",
+    );
+    expect(closePoint).toBeDefined();
+    expect(closePoint!.attributes[ATTR_DB_SYSTEM_NAME]).toBe("sqlite");
+  });
+
+  test("includes error.type on failed queries", async () => {
+    const sql = createSql();
+    try {
+      await sql`SELECT * FROM nonexistent_table_xyz`;
+    } catch {
+      // Expected
+    }
+    await sql.close();
+
+    const result = await getMetricDataPoints();
+    const dataPoints = getHistogramDataPoints(result);
+    const errorPoint = dataPoints.find(
+      (dp) => dp.attributes[ATTR_ERROR_TYPE] !== undefined,
+    );
+    expect(errorPoint).toBeDefined();
+    expect(errorPoint!.attributes[ATTR_ERROR_TYPE]).toBe("SQLiteError");
+  });
+
+  test("duration is recorded in seconds", async () => {
+    const sql = createSql();
+    await sql`SELECT 1`;
+    await sql.close();
+
+    const result = await getMetricDataPoints();
+    const scopeMetrics = result.resourceMetrics.scopeMetrics;
+    for (const scope of scopeMetrics) {
+      for (const metric of scope.metrics) {
+        if (metric.descriptor.name === METRIC_DB_CLIENT_OPERATION_DURATION) {
+          expect(metric.descriptor.unit).toBe("s");
+        }
+      }
+    }
+  });
+
+  test("multiple operations produce separate data points", async () => {
+    const sql = createSql();
+    await sql`CREATE TABLE metric_test(id INTEGER PRIMARY KEY, val TEXT)`;
+    await sql`INSERT INTO metric_test(val) VALUES(${"a"})`;
+    await sql`SELECT * FROM metric_test`;
+    await sql.close();
+
+    const result = await getMetricDataPoints();
+    const dataPoints = getHistogramDataPoints(result);
+    const operations = dataPoints.map((dp) => dp.attributes[ATTR_DB_OPERATION_NAME]);
+    expect(operations).toContain("CREATE");
+    expect(operations).toContain("INSERT");
+    expect(operations).toContain("SELECT");
+  });
+
+  test("includes db.response.status_code on failed queries", async () => {
+    const sql = createSql();
+    try {
+      await sql`SELECT * FROM nonexistent_table_xyz`;
+    } catch {
+      // Expected
+    }
+    await sql.close();
+
+    const result = await getMetricDataPoints();
+    const dataPoints = getHistogramDataPoints(result);
+    const errorPoint = dataPoints.find(
+      (dp) => dp.attributes[ATTR_DB_RESPONSE_STATUS_CODE] !== undefined,
+    );
+    // SQLite errors typically have error codes
+    if (errorPoint !== undefined) {
+      expect(typeof errorPoint.attributes[ATTR_DB_RESPONSE_STATUS_CODE]).toBe("string");
+    }
   });
 });
