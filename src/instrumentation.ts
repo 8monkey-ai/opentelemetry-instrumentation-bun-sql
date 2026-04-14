@@ -1,4 +1,14 @@
-import { context, type Span, SpanKind, SpanStatusCode, trace } from "@opentelemetry/api";
+import {
+  context,
+  type Histogram,
+  type HrTime,
+  type Span,
+  SpanKind,
+  SpanStatusCode,
+  trace,
+  ValueType,
+} from "@opentelemetry/api";
+import { hrTime, hrTimeDuration, hrTimeToMilliseconds } from "@opentelemetry/core";
 import { InstrumentationBase, safeExecuteInTheMiddle } from "@opentelemetry/instrumentation";
 import {
   ATTR_DB_NAMESPACE,
@@ -9,6 +19,7 @@ import {
   ATTR_ERROR_TYPE,
   ATTR_SERVER_ADDRESS,
   ATTR_SERVER_PORT,
+  METRIC_DB_CLIENT_OPERATION_DURATION,
 } from "@opentelemetry/semantic-conventions";
 import { addSqlCommenterComment } from "@opentelemetry/sql-common";
 import type { SQL, TransactionSQL } from "bun";
@@ -31,6 +42,21 @@ const INSTRUMENTATION_NAME = "@8monkey/opentelemetry-instrumentation-bun-sql";
 
 // Symbol to mark instances we've already wrapped
 const WRAPPED = Symbol.for("bun-sql-otel-wrapped");
+
+/**
+ * Span attribute keys to copy into metric attributes.
+ * Per OTel DB metrics semconv, these are Required / Conditionally Required / Recommended.
+ * `db.query.text` is intentionally excluded (PII safety / high cardinality).
+ */
+const METRIC_KEYS_TO_COPY: string[] = [
+  ATTR_DB_SYSTEM_NAME,
+  ATTR_DB_OPERATION_NAME,
+  ATTR_DB_NAMESPACE,
+  ATTR_ERROR_TYPE,
+  ATTR_DB_RESPONSE_STATUS_CODE,
+  ATTR_SERVER_ADDRESS,
+  ATTR_SERVER_PORT,
+];
 
 interface InstanceContext {
   systemName: string;
@@ -59,13 +85,15 @@ function buildCtxAttributes(
   return attrs;
 }
 
-export class BunSqlInstrumentation extends InstrumentationBase {
+// oxlint-disable-next-line no-unnecessary-type-arguments -- explicit type for getConfig()/setConfig() ergonomics
+export class BunSqlInstrumentation extends InstrumentationBase<BunSqlInstrumentationConfig> {
   // These fields are intentionally NOT class field initializers.
   // InstrumentationBase.constructor calls enable() before subclass field
   // initializers run, which would overwrite state set during enable().
   declare private _originalSQL: (new (...args: unknown[]) => SQL) | null;
   declare private _originalSqlSingleton: SQL | null;
   declare private _patched: boolean;
+  declare private _operationDuration: Histogram;
 
   constructor(config?: BunSqlInstrumentationConfig) {
     super(INSTRUMENTATION_NAME, VERSION, config ?? {});
@@ -80,6 +108,17 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       maskStatement: true,
       ...super.getConfig(),
     };
+  }
+
+  override _updateMetricInstruments(): void {
+    this._operationDuration = this.meter.createHistogram(METRIC_DB_CLIENT_OPERATION_DURATION, {
+      description: "Duration of database client operations.",
+      unit: "s",
+      valueType: ValueType.DOUBLE,
+      advice: {
+        explicitBucketBoundaries: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10],
+      },
+    });
   }
 
   init(): [] {
@@ -294,6 +333,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     config: BunSqlInstrumentationConfig,
     execute: (span: Span) => unknown,
   ): unknown {
+    const startTime = hrTime();
     const attributes = buildCtxAttributes(ctx);
     if (operationName !== undefined) attributes[ATTR_DB_OPERATION_NAME] = operationName;
     attributes[ATTR_DB_QUERY_TEXT] = queryText;
@@ -321,9 +361,11 @@ export class BunSqlInstrumentation extends InstrumentationBase {
 
     try {
       const result = context.with(trace.setSpan(context.active(), span), () => execute(span));
-      return this._wrapQueryResult(result, span, config);
+      return this._wrapQueryResult(result, span, config, startTime, attributes);
     } catch (error) {
-      this._recordError(span, error instanceof Error ? error : new Error(String(error)));
+      const err = error instanceof Error ? error : new Error(String(error));
+      this._recordError(span, err);
+      this._recordOperationDuration(startTime, attributes, err.constructor.name, this._getDbStatusCode(err));
       span.end();
       throw error;
     }
@@ -343,27 +385,30 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       ) {
         return original().then(onSuccess);
       }
+      const startTime = hrTime();
+      const attributes = buildCtxAttributes(ctx, { [ATTR_DB_OPERATION_NAME]: op });
       const span = this.tracer.startSpan(
         buildSpanName({ operationName: op, namespace: ctx.namespace, systemName: ctx.systemName }),
-        {
-          kind: SpanKind.CLIENT,
-          attributes: buildCtxAttributes(ctx, { [ATTR_DB_OPERATION_NAME]: op }),
-        },
+        { kind: SpanKind.CLIENT, attributes },
       );
       try {
         return original().then(
           (r: TIn): TOut => {
+            this._recordOperationDuration(startTime, attributes);
             span.end();
             return onSuccess(r);
           },
           (e: Error) => {
             this._recordError(span, e);
+            this._recordOperationDuration(startTime, attributes, e.constructor.name, this._getDbStatusCode(e));
             span.end();
             throw e;
           },
         );
       } catch (e) {
-        this._recordError(span, e instanceof Error ? e : new Error(String(e)));
+        const err = e instanceof Error ? e : new Error(String(e));
+        this._recordError(span, err);
+        this._recordOperationDuration(startTime, attributes, err.constructor.name, this._getDbStatusCode(err));
         span.end();
         throw e;
       }
@@ -380,8 +425,11 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     queryResult: unknown,
     span: Span,
     config: BunSqlInstrumentationConfig,
+    startTime: HrTime,
+    attributes: Record<string, string | number>,
   ): unknown {
     if (typeof queryResult !== "object" || queryResult === null || !("then" in queryResult)) {
+      this._recordOperationDuration(startTime, attributes);
       span.end();
       return queryResult;
     }
@@ -400,11 +448,14 @@ export class BunSqlInstrumentation extends InstrumentationBase {
       origThen.call(
         resultObj,
         (data: unknown) => {
+          this._recordOperationDuration(startTime, attributes);
           this._handleQuerySuccess(span, data, config);
           return onFulfilled === undefined ? data : onFulfilled(data);
         },
         (error: unknown) => {
-          this._recordError(span, error instanceof Error ? error : new Error(String(error)));
+          const err = error instanceof Error ? error : new Error(String(error));
+          this._recordError(span, err);
+          this._recordOperationDuration(startTime, attributes, err.constructor.name, this._getDbStatusCode(err));
           span.end();
           if (onRejected !== undefined) return onRejected(error);
           throw error;
@@ -421,7 +472,7 @@ export class BunSqlInstrumentation extends InstrumentationBase {
           if (typeof value === "function") {
             return (...args: unknown[]): unknown => {
               const chainResult: unknown = value.apply(target, args);
-              return this._wrapQueryResult(chainResult, span, config);
+              return this._wrapQueryResult(chainResult, span, config, startTime, attributes);
             };
           }
           return value;
@@ -470,11 +521,36 @@ export class BunSqlInstrumentation extends InstrumentationBase {
     span.setAttribute(ATTR_ERROR_TYPE, error.constructor.name);
 
     // Capture database-specific error codes
-    if ("code" in error && typeof error.code === "string") {
-      span.setAttribute(ATTR_DB_RESPONSE_STATUS_CODE, error.code);
-    } else if ("errno" in error && typeof error.errno === "number") {
-      span.setAttribute(ATTR_DB_RESPONSE_STATUS_CODE, String(error.errno));
+    const statusCode = this._getDbStatusCode(error);
+    if (statusCode !== undefined) {
+      span.setAttribute(ATTR_DB_RESPONSE_STATUS_CODE, statusCode);
     }
+  }
+
+  private _getDbStatusCode(error: Error): string | undefined {
+    if ("code" in error && typeof error.code === "string") return error.code;
+    if ("errno" in error && typeof error.errno === "number") return String(error.errno);
+    return undefined;
+  }
+
+  private _recordOperationDuration(
+    startTime: HrTime,
+    spanAttributes: Record<string, string | number>,
+    errorType?: string,
+    dbResponseStatusCode?: string,
+  ): void {
+    const metricsAttributes: Record<string, string | number> = {};
+    for (const key of METRIC_KEYS_TO_COPY) {
+      if (key in spanAttributes) {
+        metricsAttributes[key] = spanAttributes[key]!;
+      }
+    }
+    if (errorType !== undefined) metricsAttributes[ATTR_ERROR_TYPE] = errorType;
+    if (dbResponseStatusCode !== undefined)
+      metricsAttributes[ATTR_DB_RESPONSE_STATUS_CODE] = dbResponseStatusCode;
+
+    const durationSeconds = hrTimeToMilliseconds(hrTimeDuration(startTime, hrTime())) / 1000;
+    this._operationDuration.record(durationSeconds, metricsAttributes);
   }
 
   private _callRequestHook(
